@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <ciosmaps ciosgroupscount="1">
-	<ciosgroup name="d2xl-v${MAJOR_VER}-${MINOR_VER}" version="${IOS_REV}" basescount="15">
+	<ciosgroup name="d2xl-v${MAJOR_VER}-${MINOR_VER}" version="${IOS_REV}" basescount="16">
 		
 		<!-- WII IOS START -->		
 			
