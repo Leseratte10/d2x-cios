@@ -5,6 +5,8 @@
 	Copyright (C) 2009 kwiirk.
 	Copyright (C) 2009 Hermes.
 	Copyright (C) 2009 Waninkoko.
+	Copyright (C) 2011 rodries.
+	Copyright (C) 2011 davebaol.
 	Copyright (C) 2020 Leseratte.
 
 	This program is free software; you can redistribute it and/or modify
@@ -22,6 +24,7 @@
 	Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 */
 
+#include "loop.h"
 #include "mem.h"
 #include "syscalls.h"
 #include "timer.h"
@@ -51,6 +54,9 @@ int main(void)
 	if (ret < 0)
 		return ret;
 
+	/* Set current USB port (Now means LUN instead of USB port 1) */
+	current_port = 0;
+	
 	/* Initialize TinyEhci */
 	ret = EHCI_Init();
 	if (ret < 0)

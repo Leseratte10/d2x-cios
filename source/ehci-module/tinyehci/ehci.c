@@ -9,6 +9,10 @@
    this driver is originally based on the GPL linux ehci-hcd driver
 
  * Original Copyright (c) 2001 by David Brownell
+ * Copyright (c) 2009 Kwiirk.
+ * Copyright (c) 2009 Hermes.
+ * Copyright (c) 2011 rodries.
+ * Copyright (c) 2011 davebaol.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -511,7 +515,8 @@ cleanup:
 
 u32 usb_timeout=1000*1000;
 
-
+// 2022-02-27 Now means LUN instead of USB port.
+u32 current_port = 0;
 
  int ehci_do_urb (
         struct ehci_device *dev,

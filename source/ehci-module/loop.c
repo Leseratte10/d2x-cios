@@ -5,6 +5,7 @@
 	Copyright (C) 2009 kwiirk.
 	Copyright (C) 2009 Hermes.
 	Copyright (C) 2009 Waninkoko.
+	Copyright (C) 2011 davebaol.
 
 	This program is free software; you can redistribute it and/or modify
 	it under the terms of the GNU General Public License as published by
@@ -28,6 +29,7 @@
 #include "ehci_types.h"
 #include "ehci.h"
 #include "ipc.h"
+#include "loop.h"
 #include "mem.h"
 #include "module.h"
 #include "stealth.h"
@@ -214,6 +216,18 @@ s32 __EHCI_Ioctlv(s32 fd, u32 cmd, ioctlv *vector, u32 inlen, u32 iolen, s32 *ac
 
 		/* Set watchdog */
 		watchdog = value;
+		break;
+	}
+
+	// 2022-02-27 Reinstate SET_PORT of beta53-alt although it now means LUN instead of USB port.
+	case USB_IOCTL_UMS_SET_PORT: {
+		u32 port = *(u32 *)vector[0].data;
+
+		/* Set current USB port */
+		if (port > 1)
+			ret = -1;
+		else
+			ret = current_port = port;
 
 		break;
 	}

@@ -1166,7 +1166,9 @@ s32 USBStorage_Try_Device(struct ehci_device *fd)
 	maxLun= 1;
     __usbfd.max_lun = 1;  
 
-	j=0; 
+	// 2022-02-27 Now means LUN instead of USB port.
+	extern u32 current_port;
+	j=current_port; 
       //for(j = 0; j < maxLun; j++)
 	while(1)
        {
@@ -1208,9 +1210,9 @@ s32 USBStorage_Try_Device(struct ehci_device *fd)
 					 #endif
 					test_max_lun=0;
 					}
-				else j++;
+				else j--;
 
-				if(j>=maxLun) break;
+				if(j<0) break;
 				continue;
 				}
 
