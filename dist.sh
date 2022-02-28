@@ -15,6 +15,6 @@ cd ..
 timestamp=$(git log -1 --pretty=%ct)
 echo Timestamp is $timestamp
 export SOURCE_DATE_EPOCH=$timestamp 
-export D2XL_VER_COMPILE="v11-git+$(git rev-parse --short HEAD)"
-./maked2x.sh 11 git+$(git rev-parse --short HEAD)
+export D2XL_VER_COMPILE="v2-git+$(git rev-parse --short HEAD)"
+./maked2x.sh 2 git+$(git rev-parse --short HEAD)
 
