@@ -51,7 +51,8 @@ make_modules() {
         # Leseratte's new tags and filter the options. The only cost to this arrangement is file duplication and extra disk/SD card
         # space.
         cp -fprT "build/${D2XBUILD}" "build/${D2XBASENAME}-vWii"
-        cp -fprT "build/${D2XBUILD}" "build/${D2XBASENAME}-WiiMini"
+        cp -fprT "build/${D2XBUILD}" "build/${D2XBASENAME}-WiiMini-NTSCU"
+        cp -fprT "build/${D2XBUILD}" "build/${D2XBASENAME}-WiiMini-PAL"
 
         [ -z "${DIST}" ] && completed
 

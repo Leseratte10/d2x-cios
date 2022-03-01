@@ -2,6 +2,12 @@
 | CHANGELOG |
 +-----------+
 
+[ d2xl v9 ] (NOT RELEASED YET)
+
+- Support for 2-bay HDD enclosure/dock - use USB Port setting in USB Loader GX or WiiXplorer to choose drive
+- FAKEMOTE by xerpi see https://gbatemp.net/threads/release-fakemote-an-ios-module-that-fakes-wiimotes-from-the-input-of-usb-game-controllers.601771/
+- Upped version to 9 to convince WiiXplorer that USB Set Port API is available
+
 [ d2xl v1 beta3 ] (NOT RELEASED YET)
 
 - First version compiled from source

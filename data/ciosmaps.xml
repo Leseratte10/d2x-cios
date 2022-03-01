@@ -814,8 +814,8 @@
 			</base>
 	</ciosgroup>
 
-	<ciosgroup name="d2xl-v${MAJOR_VER}-${MINOR_VER}-WiiMini-NTSC" version="${IOS_REV}" basescount="1">
-			<base ios="57" version="31775" contentscount="26" modulescount="8" console="mini" region="ntsc">  <!-- Canada version -->
+	<ciosgroup name="d2xl-v${MAJOR_VER}-${MINOR_VER}-WiiMini-NTSCU" version="${IOS_REV}" basescount="1">
+			<base ios="57" version="31775" contentscount="26" modulescount="8" console="mini" region="ntscu">  <!-- Canada version -->
 				<content id="0x12" patchscount="7">		<!-- idx 0 -->
 					<patch offset="0x00" size="4"  originalbytes="0x66,0x69,0x72,0x6d" newbytes="0x1e,0xe7,0xc1,0x05"/>
 					<patch offset="0x04" size="4"  originalbytes="0x77,0x61,0x72,0x65" newbytes="0x00,0x00,0x00,0x01"/>
