@@ -41,7 +41,7 @@ make_modules() {
         cp data/Changelog.txt build
         # When docker is built it has downloaded some content in its image, e.g. FAKEMOTE by xerpi please see
         # https://gbatemp.net/threads/release-fakemote-an-ios-module-that-fakes-wiimotes-from-the-input-of-usb-game-controllers.601771/
-        cp -p /opt/app/* "build/${D2XBUILD}"
+        cp -p /opt/content/* "build/${D2XBUILD}"
         # Make duplicates of binaries so that they will show up as different groups in d2x-cios-installer. In my opinion this is the
         # less risky solution in the wrong hands. Leseratte added console= and region= tags to ciosmaps.xml. A new d2x-cios-installer
         # is needed with enhancements to support those new tags and filter the user interface so that only the options pertinent to the

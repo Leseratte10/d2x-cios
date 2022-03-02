@@ -146,6 +146,8 @@ s32 __EHCI_Ioctlv(s32 fd, u32 cmd, ioctlv *vector, u32 inlen, u32 iolen, s32 *ac
 
 	case USB_IOCTL_UMS_INIT: {
 		/* Initialize USB storage */
+		//2022-03-02 if homebrew is aware of multiple USB ports, it would call init multiple times, with
+		//a USB_IOCTL_UMS_SET_PORT call before each init. 
 		ret = USBStorage_Init();
 
 		/* Set UMS mode */

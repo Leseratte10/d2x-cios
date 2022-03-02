@@ -32,7 +32,7 @@
 
 
 /* magic numbers that can affect system performance */
-#define	EHCI_TUNE_CERR		0	/* 0-3 qtd retries; 0 == don't stop */ /* by  Hermes: i have replaced 3 by 0 and now it don´t hang when i extract the device*/
+#define	EHCI_TUNE_CERR		0	/* 0-3 qtd retries; 0 == don't stop */ /* by  Hermes: i have replaced 3 by 0 and now it donÂ´t hang when i extract the device*/
 #define	EHCI_TUNE_RL_HS		4	/* nak throttle; see 4.9 */
 #define	EHCI_TUNE_RL_TT		0
 #define	EHCI_TUNE_MULT_HS	1	/* 1-3 transactions/uframe; 4.10.3 */
@@ -166,7 +166,7 @@ void dump_qh(struct ehci_qh	*qh)
  * before driver shutdown. But it also seems to be caused by bugs in cardbus
  * bridge shutdown:  shutting down the bridge before the devices using it.
  */
-int unplug_device=0;
+int unplug_device=0;	//2022-03-01 there is only 1 EHCI port (no physical USB Port 1 support), if we unplug its for all drives. So, no need to remember [current_port] separately as in v9 alt. This is not real v9 alt.
 
 #define INTR_MASK (STS_IAA | STS_FATAL | STS_PCD | STS_ERR | STS_INT)
 

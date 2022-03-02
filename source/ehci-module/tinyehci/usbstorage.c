@@ -83,17 +83,18 @@ distribution.
 
 #define DEVLIST_MAXSIZE    8
 
-static int ums_init_done = 0;
+static int ums_init_done = 0;	//2022-03-02 should be done once per USB port, even if there are multiple LUNs
 
 extern int handshake_mode; // 0->timeout force -ENODEV 1->timeout return -ETIMEDOUT
 
 static bool first_access=true;
 
 static usbstorage_handle __usbfd;
-static u8 __lun = 16;
-static u8 __mounted = 0;
+static u8 __lun[2] = {16,16};
+static u8 __mounted[2] = {0,0};	//2022-03-02 if both LUNs are umounted we can close the USB port
 static u16 __vid = 0;
 static u16 __pid = 0;
+extern u32 current_port;	//2022-03-02: this is set by the EHCI loop's USB_IOCTL_UMS_SET_PORT extension
 
 //0x1377E000
 
@@ -580,9 +581,9 @@ static s32 __usbstorage_reset(usbstorage_handle *dev,int hard_reset)
                         goto end;
                 if(dev->altInterface != 0 && USB_SetAlternativeInterface(dev->usb_fd, dev->interface, dev->altInterface) < 0)
                         goto end;
-				if(__lun != 16)
+				if(__lun[current_port] != 16)
 					{
-					if(USBStorage_MountLUN(&__usbfd, __lun) < 0)
+					if(USBStorage_MountLUN(&__usbfd, __lun[current_port]) < 0)
                         goto end;
 					}
         }
@@ -676,7 +677,7 @@ s32 USBStorage_Open(usbstorage_handle *dev, struct ehci_device *fd)
 	usb_interfacedesc *uid;
 	usb_endpointdesc *ued;
 	
-	__lun= 16; // select bad LUN
+	__lun[current_port]= 16; // select bad LUN
 
 	max_lun = USB_Alloc(1);
 	if(max_lun==NULL) return -ENOMEM;
@@ -904,8 +905,16 @@ free_and_return:
 
 s32 USBStorage_Close(usbstorage_handle *dev)
 {
-        if(dev->buffer != NULL)
-                USB_Free(dev->buffer);
+	__mounted[current_port] = 0;
+	//2022-03-01 Close the entire USB port only if all drives are unmounted
+	int i;
+	for (i=0; i<sizeof(__mounted)/sizeof(__mounted[0]); i++)
+	{
+		if (0 != __mounted[i])
+			return 0;
+	}
+	if(dev->buffer != NULL)
+		USB_Free(dev->buffer);
 	memset(dev, 0, sizeof(*dev));
 
 	return 0;
@@ -1123,15 +1132,14 @@ s32 USBStorage_Read_Stress(u32 sector, u32 numSectors, void *buffer)
 {
    s32 retval;
    int i;
-   if(__mounted != 1)
+   if(__mounted[current_port] != 1)
        return false;
    
    for(i=0;i<512;i++){
-           retval = USBStorage_Read(&__usbfd, __lun, sector, numSectors, buffer);
+           retval = USBStorage_Read(&__usbfd, __lun[current_port], sector, numSectors, buffer);
            sector+=numSectors;
            if(retval == USBSTORAGE_ETIMEDOUT)
            {
-                   __mounted = 0;
                    USBStorage_Close(&__usbfd);
            }
            if(retval < 0)
@@ -1163,14 +1171,17 @@ s32 USBStorage_Try_Device(struct ehci_device *fd)
 			}
 */
 	 
-	maxLun= 1;
-    __usbfd.max_lun = 1;  
+	maxLun= 8;
+    __usbfd.max_lun = 8;  
 
-	// 2022-02-27 Now means LUN instead of USB port.
-	extern u32 current_port;
-	j=current_port; 
+	/* 2022-03-01 USBStorage_Try_Device is called only once because ums_init_done will trap the
+	 * second call and ignore it. So, now is the time to scan all LUNs we promise to support.
+	 */
+	j=0; 
       //for(j = 0; j < maxLun; j++)
-	while(1)
+	int n=sizeof(__mounted)/sizeof(__mounted[0]);
+    int found=0;
+    while (1)
        {
 
 		   #ifdef MEM_PRINT
@@ -1186,7 +1197,6 @@ s32 USBStorage_Try_Device(struct ehci_device *fd)
            { 
                //USBStorage_Reset(&__usbfd);
 			   try_status=-121;
-			   __mounted = 0;
                USBStorage_Close(&__usbfd); 
 			   return -EINVAL;
              //  break;
@@ -1210,22 +1220,26 @@ s32 USBStorage_Try_Device(struct ehci_device *fd)
 					 #endif
 					test_max_lun=0;
 					}
-				else j--;
+				else j++;
 
-				if(j<0) break;
+				if(j>=maxLun) break;
 				continue;
 				}
 
            __vid=fd->desc.idVendor;
            __pid=fd->desc.idProduct;
-           __mounted = 1;
-           __lun = j;
+           __mounted[found] = 1;
+           __lun[found] = j++;
 		   usb_timeout=1000*1000;
 		   try_status=0;
-           return 0;
+		   //2022-03-02 yes we found a LUN but don't return just yet, until we have scanned both LUNs.
+		   if (found++ >= n)
+	           return 0;
        }
+       //It counts as success if there is at least one found
+	   if (found>0)
+		   return 0;
 	   try_status=-122;
-	   __mounted = 0;
 	   USBStorage_Close(&__usbfd);
 
 	   #ifdef MEM_PRINT
@@ -1239,14 +1253,20 @@ void USBStorage_Umount(void)
 {
 	if(!ums_init_done) return;
 	
-	if(__mounted && !unplug_device)
+	if(__mounted[current_port] && !unplug_device)
 	{
-		if(__usbstorage_start_stop(&__usbfd, __lun, 0x0)==0) // stop
+		if(__usbstorage_start_stop(&__usbfd, __lun[current_port], 0x0)==0) // stop
 		ehci_msleep(1000);
 	}
 
-	USBStorage_Close(&__usbfd);__lun= 16;
-	__mounted=0;
+	USBStorage_Close(&__usbfd);
+	__lun[current_port]= 16;
+	int i;
+	for (i=0; i<sizeof(__mounted)/sizeof(__mounted[0]); i++)
+	{
+		if (0 != __mounted[i])
+			return;
+	}
 	ums_init_done=0;
 	unplug_device=0;
 }
@@ -1256,6 +1276,11 @@ s32 USBStorage_Init(void)
 {
 	int i;
 	debug_printf("usbstorage init %d\n", ums_init_done);
+	/* 2022-03-02 homebrew will first set current_point and then call this function, and may 
+	 * do so multiple times (if USB Port is set to "both"). However there is only one real USB
+	 * port and that needs to be initialized only once. For multi physical USB port support,
+	 * use v9 a.k.a v10-alt cIOS.
+	 */
 	if(ums_init_done)
 		return 0;
 
@@ -1326,12 +1351,12 @@ s_printf("\n***************************************************\nUSBStorage_Init
 // Now it returns an unsigned int to support HDD greater than 1TB.
 u32 USBStorage_Get_Capacity(u32*sector_size)
 {
-	if(__mounted == 1)
+	if(__mounted[current_port] == 1)
 	{
 		if(sector_size){
-			*sector_size = __usbfd.sector_size[__lun];
+			*sector_size = __usbfd.sector_size[__lun[current_port]];
 		}
-		return __usbfd.n_sector[__lun];
+		return __usbfd.n_sector[__lun[current_port]];
 	}
 	return 0;
 }
@@ -1368,7 +1393,7 @@ s32 USBStorage_Read_Sectors(u32 sector, u32 numSectors, void *buffer)
 {
    s32 retval=0;
    int retry;
-   if(__mounted != 1)
+   if(__mounted[current_port] != 1)
        return false;
    
    for(retry=0;retry<16;retry++)
@@ -1391,7 +1416,7 @@ s32 USBStorage_Read_Sectors(u32 sector, u32 numSectors, void *buffer)
 		 //if(retval==-ENODEV) return 0;
 		 usb_timeout=1000*1000; // 4 seconds to wait
 	    if(retval >= 0)
-		   retval = USBStorage_Read(&__usbfd, __lun, sector, numSectors, buffer);
+		   retval = USBStorage_Read(&__usbfd, __lun[current_port], sector, numSectors, buffer);
 		usb_timeout=1000*1000;
 		if(unplug_device!=0 ) continue;
 		 //if(retval==-ENODEV) return 0;
@@ -1414,7 +1439,7 @@ s32 USBStorage_Write_Sectors(u32 sector, u32 numSectors, const void *buffer)
    s32 retval=0;
    int retry;
 
-   if(__mounted != 1)
+   if(__mounted[current_port] != 1)
        return false;
 
     for(retry=0;retry<16;retry++)
@@ -1437,7 +1462,7 @@ s32 USBStorage_Write_Sectors(u32 sector, u32 numSectors, const void *buffer)
 		  if(unplug_device!=0 ) continue;
 		 usb_timeout=1000*1000; // 4 seconds to wait
 	    if(retval >=0)
-		   retval = USBStorage_Write(&__usbfd, __lun, sector, numSectors, buffer);
+		   retval = USBStorage_Write(&__usbfd, __lun[current_port], sector, numSectors, buffer);
 		usb_timeout=1000*1000;
 		if(unplug_device!=0 ) continue;
 		if(retval>=0) break;

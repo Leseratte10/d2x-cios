@@ -16,7 +16,7 @@ RUN rm devkitARM-r32-linux_debian-buster.tar.gz
 
 # FAKEMOTE by xerpi please see https://gbatemp.net/threads/release-fakemote-an-ios-module-that-fakes-wiimotes-from-the-input-of-usb-game-controllers.601771/
 RUN wget https://github.com/xerpi/fakemote/releases/download/v0.5.0/FAKEMOTE.zip
-RUN unzip -d /opt/app FAKEMOTE.zip
+RUN unzip -d /opt/content FAKEMOTE.zip
 RUN rm FAKEMOTE.zip
 
 # At this point, we extracted the working devkitARM setup
