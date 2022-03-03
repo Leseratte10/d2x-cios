@@ -1192,8 +1192,8 @@ s32 USBStorage_Try_Device(struct ehci_device *fd)
 		   s_printf("USBStorage_MountLUN: ret %i\n", retval);
 		   #endif
 
-		  
-           if(retval == USBSTORAGE_ETIMEDOUT /*&& test_max_lun==0*/)
+           if(retval == USBSTORAGE_ETIMEDOUT /*&& test_max_lun==0*/ && 
+		   		0 == found)	//2022-03-02 if there is one bird in hand it is not a failure
            { 
                //USBStorage_Reset(&__usbfd);
 			   try_status=-121;
