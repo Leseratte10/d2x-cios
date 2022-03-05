@@ -42,7 +42,8 @@
 
   d2x-cios-installer:
 
-  - Download the latest d2x-cios-installer from its google code page:
+  - For vWii (Wii U) or Wii Mini, use d2x-cios-installer 2.2 Mod
+  - For Wii, download the latest d2x-cios-installer from its google code page:
     http://code.google.com/p/d2x-cios-installer/downloads/list
   - Extract it into the apps folder of your sd card or usb device
   - Extract d2xl-v${MAJOR_VER}-${MINOR_VER}.zip on your sd card or usb device
@@ -52,6 +53,8 @@
     extracting the d2x package. 
   - Launch the Homebrew Channel, start the installer and follow the 
     instructions on the screen
+  - Choose your hardware to install: vWii (Wii U), Wii, Wii Mini NTSC-U or Wii
+    Mini PAL. Only the cIOS which matches your hardware will work.
 
 
 [ KUDOS ]
@@ -74,4 +77,5 @@
 - kwiirk, for his EHCI module.
 - Hermes, for his EHCI improvements.
 - neimod, for the Custom IOS module.
+- xerpi, for fakemote (wired ps3/ps4 controller support).
 - All the betatesters.
