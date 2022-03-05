@@ -7,6 +7,8 @@ Sven Peter (svpe) <svpe@gmx.net>
 
 quick port to ehci/ios: Kwiirk
 
+Copyright (C) 2022 cyberstudio
+
 This software is provided 'as-is', without any express or implied
 warranty.  In no event will the authors be held liable for any
 damages arising from the use of this software.
@@ -856,7 +858,7 @@ found:
 	if(retval == USBSTORAGE_ETIMEDOUT)*/
 
 	/* NOTE: from usbmassbulk_10.pdf "Devices that do not support multiple LUNs may STALL this command." */
-		dev->max_lun = 8; // max_lun can be from 1 to 16, but some devices do not support lun 
+		dev->max_lun = 1; // max_lun can be from 1 to 16, but some devices do not support lun 2022-03-05 assume single drive by default
 	
 	retval = USBSTORAGE_OK;
 
@@ -916,7 +918,8 @@ s32 USBStorage_Close(usbstorage_handle *dev)
 	if(dev->buffer != NULL)
 		USB_Free(dev->buffer);
 	memset(dev, 0, sizeof(*dev));
-
+	ums_init_done=0;
+	unplug_device=0;
 	return 0;
 }
 
@@ -1140,6 +1143,7 @@ s32 USBStorage_Read_Stress(u32 sector, u32 numSectors, void *buffer)
            sector+=numSectors;
            if(retval == USBSTORAGE_ETIMEDOUT)
            {
+                   //2022-03-05 done by USBStorage_Close() __mounted = 0;
                    USBStorage_Close(&__usbfd);
            }
            if(retval < 0)
@@ -1149,55 +1153,15 @@ s32 USBStorage_Read_Stress(u32 sector, u32 numSectors, void *buffer)
 
 }
 
-int get_max_lun(void)
-{
-	__usbfd.max_lun = 0;
-	/* NOTE: from usbmassbulk_10.pdf "Devices that do not support multiple LUNs may STALL this command." */
-	s32 retval = __USB_CtrlMsgTimeout(&__usbfd, 
-		(USB_CTRLTYPE_DIR_DEVICE2HOST | USB_CTRLTYPE_TYPE_CLASS | USB_CTRLTYPE_REC_INTERFACE), 
-		USBSTORAGE_GET_MAX_LUN, 0, __usbfd.interface, 1, &__usbfd.max_lun);
-	if(retval < 0 )
-		__usbfd.max_lun = 1;
-	else __usbfd.max_lun++;
-	int maxLun = __usbfd.max_lun;
 
-		#ifdef MEM_PRINT
-		s_printf("USBSTORAGE_GET_MAX_LUN ret %i maxlun %i\n", retval,maxLun);
-		#endif
-	return maxLun;
-}
-
-// temp function before libfat is available */
-s32 USBStorage_Try_Device(struct ehci_device *fd)
+int test_max_lun=1;
+s32 USBStorage_ScanLUN(void)
 {
+	if (__mounted[current_port])
+		return 0;
+
 	int maxLun,j,retval;
-	int test_max_lun=1;
 
-	int found = 0;	// "Port" to start scanning from
-	j = 0;			// LUN to start scanning from
-    if (current_port > 0)
-	{
-        maxLun = get_max_lun();	// user ordered port 1, so it is safe to test max LUN
-		test_max_lun=0;			// don't get a second time
-		for (found = current_port; found > 0; found--)
-			if (0 != __mounted[found-1])
-			{
-				// This is where we left off the last time we last scanned for LUNs, and is where we start scanning this time.
-				j = __lun[found-1] + 1;
-				break;
-			}
-	}
-    else
-    {
-        maxLun = 1;
-		__usbfd.max_lun = 1;
-    }
-	if (0 == ums_init_done)	// no need to open again - if this is the second time we init
-	{
-		try_status=-120;
-		if(USBStorage_Open(&__usbfd, fd) < 0)
-			return -EINVAL;
-    }
 	/*
        maxLun = USBStorage_GetMaxLUN(&__usbfd);
        if(maxLun == USBSTORAGE_ETIMEDOUT)
@@ -1207,8 +1171,20 @@ s32 USBStorage_Try_Device(struct ehci_device *fd)
 			return -EINVAL;
 			}
 */
-	 
+	maxLun = __usbfd.max_lun;
 
+	j = 0;			// LUN to start scanning from
+	int found = 0;	// "Port" to start scanning from
+    if (current_port > 0)
+	{
+		for (found = current_port; found > 0; found--)
+			if (0 != __mounted[found-1])
+			{
+				// This is where we left off the last time we last scanned for LUNs, and is where we start scanning this time.
+				j = __lun[found-1] + 1;
+				break;
+			}
+	}
       //for(j = 0; j < maxLun; j++)
 	while(1)
        {
@@ -1226,6 +1202,7 @@ s32 USBStorage_Try_Device(struct ehci_device *fd)
            { 
                //USBStorage_Reset(&__usbfd);
 			   try_status=-121;
+			   //2022-03-05 done by USBStorage_Close() __mounted = 0;
                USBStorage_Close(&__usbfd); 
 			   return -EINVAL;
              //  break;
@@ -1234,28 +1211,40 @@ s32 USBStorage_Try_Device(struct ehci_device *fd)
            if(retval < 0)
 				{
 				if(test_max_lun)
-				{
-					maxLun = get_max_lun();
+					{
+					__usbfd.max_lun = 0;
+					retval = __USB_CtrlMsgTimeout(&__usbfd, 
+						(USB_CTRLTYPE_DIR_DEVICE2HOST | USB_CTRLTYPE_TYPE_CLASS | USB_CTRLTYPE_REC_INTERFACE), 
+						USBSTORAGE_GET_MAX_LUN, 0, __usbfd.interface, 1, &__usbfd.max_lun);
+					if(retval < 0 )
+						__usbfd.max_lun = 1;
+					else __usbfd.max_lun++;
+					maxLun = __usbfd.max_lun;
+
+					 #ifdef MEM_PRINT
+					 s_printf("USBSTORAGE_GET_MAX_LUN ret %i maxlun %i\n", retval,maxLun);
+					 #endif
 					test_max_lun=0;
-				}
+					}
 				else j++;
 
 				if(j>=maxLun) break;
 				continue;
 				}
-
+		   /*2022-03-05 now done right after USBStorage_Open()
            __vid=fd->desc.idVendor;
-           __pid=fd->desc.idProduct;
+           __pid=fd->desc.idProduct;*/
            __mounted[found] = 1;
            __lun[found] = j++;
 		   usb_timeout=1000*1000;
 		   try_status=0;
 		   ums_init_done=1;	// any success counts as UMS init done. e.g. If user sets USB Port to 1 for a single bay enclosure, we have just found LUN=0, and initialization is considered done. But the init itself is a failure because there is no LUN=1.
 		   //2022-03-02 yes we found a LUN but don't return just yet, until we have scanned both LUNs.
-		   if (found++ > current_port)
+		   if (found++ >= current_port)
 	           return 0;
        }
 	   try_status=-122;
+	   //2022-03-05 done by USBStorage_Close() __mounted = 0;
 	   USBStorage_Close(&__usbfd);
 
 	   #ifdef MEM_PRINT
@@ -1263,6 +1252,18 @@ s32 USBStorage_Try_Device(struct ehci_device *fd)
 	   #endif
 	  
        return -EINVAL;
+}
+
+// temp function before libfat is available */
+s32 USBStorage_Try_Device(struct ehci_device *fd)
+{
+	try_status=-120;
+	test_max_lun=1;
+	if(USBStorage_Open(&__usbfd, fd) < 0)
+		return -EINVAL;
+    __vid=fd->desc.idVendor;
+    __pid=fd->desc.idProduct;
+	return USBStorage_ScanLUN();
 }
 
 void USBStorage_Umount(void)
@@ -1276,15 +1277,10 @@ void USBStorage_Umount(void)
 	}
 
 	USBStorage_Close(&__usbfd);
-	__lun[current_port]= 16;
-	int i;
-	for (i=0; i<sizeof(__mounted)/sizeof(__mounted[0]); i++)
-	{
-		if (0 != __mounted[i])
-			return;
-	}
+	__lun[current_port] = 16;
+/* 2022-03-05 these are done by USBStorage_Close	__mounted=0;
 	ums_init_done=0;
-	unplug_device=0;
+	unplug_device=0; */
 }
 
 
@@ -1292,15 +1288,26 @@ s32 USBStorage_Init(void)
 {
 	int i;
 	debug_printf("usbstorage init %d\n", ums_init_done);
-	/* 2022-03-04 Assume worse-case behaviour from a single-bay HDD enclosure:
-	 * 1, querying max LUN would result in STALL
-	 * 2, if accessing LUN=1 without first checking not only will the USB mass storage not
-	 *    reject the invalid LUN as an error but it will ignore the LUN and access the
-	 *    same drive.
-	 * With those in mind, this is the rule:
-	 * "Avoid querying max LUN like the plague, UNLESS the user explicitly asks for LUN=1
-	 *  with USB Loader GX's USB Port setting or WiiXplorer's BOTH USB Port setting."
-	 */
+	if(ums_init_done)
+		/* 2022-03-04 Assume worse-case behaviour from a single-bay HDD enclosure:
+		 * 1, querying max LUN would result in STALL
+		 * 2, if accessing LUN=1 without first checking not only will the USB mass storage not
+		 *    reject the invalid LUN as an error but it will ignore the LUN and access the
+		 *    same drive.
+		 * With those in mind, this is the rule:
+		 * "Avoid querying max LUN like the plague, UNLESS the user explicitly asks for LUN=1
+		 *  with USB Loader GX's USB Port setting or WiiXplorer's BOTH USB Port setting."
+		 *
+		 * Now consider how the app calls Init. If USB Port is set to 0 or 1, Init is
+		 * called only once, with current_port already set beforehand. If set to "Both",
+		 * Init is called twice. There is only one real USB port and that needs to be
+		 * initialized only once.
+		 * 
+		 * If Init is called a second time with current_port=1 we still need to scan the
+		 * second LUN. This is because during the first call we avoided running any max
+		 * LUN query.
+		 */
+		return USBStorage_ScanLUN();
 	try_status=-1;      
 
 #ifdef MEM_PRINT
@@ -1317,16 +1324,7 @@ s_printf("\n***************************************************\nUSBStorage_Init
 					
 							
 			handshake_mode=1;
-			/* Now consider how the app calls Init. If USB Port is set to 0 or 1, Init is
-			 * called only once, with current_port already set beforehand. If set to "Both",
-			 * Init is called twice. There is only one real USB port and that needs to be
-			 * initialized only once.
-			 * 
-			 * If Init is called a second time with current_port=1 we still need to scan the
-			 * second LUN. This is because during the first call we avoided running any max
-			 * LUN query.
-			 */
-			if(ums_init_done || ehci_reset_port(0)>=0)
+			if(ehci_reset_port(0)>=0)
 			{
 
 				if(USBStorage_Try_Device(dev)==0) 
