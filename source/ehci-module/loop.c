@@ -48,7 +48,7 @@ static u32 timerId;
 
 /* Variables */
 static u32 discovered = 0;
-static u32 ums_mode[2]= {0,0};	//2022-03-05 separately track if each LUN is open or close. They share the same USB device
+u32 ums_mode          = 0;
 static u32 watchdog   = 1;
 
 
@@ -152,7 +152,7 @@ s32 __EHCI_Ioctlv(s32 fd, u32 cmd, ioctlv *vector, u32 inlen, u32 iolen, s32 *ac
 		ret = USBStorage_Init();
 
 		/* Set UMS mode */
-		ums_mode[current_port] = fd;
+		ums_mode = fd;
 
 		break;
 	}
@@ -301,8 +301,7 @@ void __EHCI_Watchdog(void)
 	u32   nbSectors, sectorSz;
 
 	/* UMS mode */
-	//2022-03-05 Do we care only about the current LUN or both LUNs? The latter is harder to implement.
-	if (ums_mode[current_port]) {
+	if (ums_mode) {
 		/* Get device info */
 		nbSectors = USBStorage_Get_Capacity(&sectorSz);
 
@@ -414,7 +413,7 @@ s32 EHCI_Loop(void)
 			}
 
 			/* USB device */
-			if (!strncmp(devpath, DEVICE "/", sizeof(DEVICE)) && !ums_mode[current_port]) {
+			if (!strncmp(devpath, DEVICE "/", sizeof(DEVICE)) && !ums_mode) {
 				/* Open USB device */
 				ret = __EHCI_OpenDevice(devpath + sizeof(DEVICE), resultfd);
 
@@ -429,14 +428,10 @@ s32 EHCI_Loop(void)
 
 		case IOS_CLOSE: {
 			/* Close device */
-			ums_mode[current_port] = 0;
-			int i;
-			for (i=0; i<sizeof(ums_mode)/sizeof(ums_mode[0]); i++)
-				if (ums_mode[i])
-					break;
-			//2022-03-05 we can only close the USB device if all LUNs are closed.
-			if (i>=sizeof(ums_mode)/sizeof(ums_mode[0]))
+			if(ums_mode != message->fd)
 				ehci_close_device(ehci_fd_to_dev(message->fd));
+			else
+				ums_mode = 0;
 
 			/* Success */
 			ret = 0;

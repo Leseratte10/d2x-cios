@@ -85,7 +85,7 @@ distribution.
 
 #define DEVLIST_MAXSIZE    8
 
-static int ums_init_done = 0;	//2022-03-02 should be done once per USB port, even if there are multiple LUNs
+extern u32 ums_mode;       //2022-03-05 USB Mass Storage init should be done once per USB port, even if there are multiple LUNs
 
 extern int handshake_mode; // 0->timeout force -ENODEV 1->timeout return -ETIMEDOUT
 
@@ -704,7 +704,7 @@ s32 USBStorage_Open(usbstorage_handle *dev, struct ehci_device *fd)
 		goto free_and_return;
 
 	// test device changed without unmount (prevent device write corruption)
-	if(ums_init_done)
+	if(ums_mode)
 		{
 		if(my_memcmp((void *) &_old_udd, (void *) &udd, sizeof(usb_devdesc)-4)) 
 			{
@@ -918,7 +918,8 @@ s32 USBStorage_Close(usbstorage_handle *dev)
 	if(dev->buffer != NULL)
 		USB_Free(dev->buffer);
 	memset(dev, 0, sizeof(*dev));
-	ums_init_done=0;
+	// If all LUNs are umounted or otherwise closed and app does an IOS_CLOSE afterwards the USB port itself will be closed.
+	ums_mode=0;
 	unplug_device=0;
 	return 0;
 }
@@ -1143,7 +1144,7 @@ s32 USBStorage_Read_Stress(u32 sector, u32 numSectors, void *buffer)
            sector+=numSectors;
            if(retval == USBSTORAGE_ETIMEDOUT)
            {
-                   //2022-03-05 done by USBStorage_Close() __mounted = 0;
+                   //2022-03-05 mount flag setting now done by USBStorage_Close() __mounted = 0;
                    USBStorage_Close(&__usbfd);
            }
            if(retval < 0)
@@ -1202,7 +1203,7 @@ s32 USBStorage_ScanLUN(void)
            { 
                //USBStorage_Reset(&__usbfd);
 			   try_status=-121;
-			   //2022-03-05 done by USBStorage_Close() __mounted = 0;
+			   //2022-03-05 mount flag clearing done by USBStorage_Close() __mounted = 0;
                USBStorage_Close(&__usbfd); 
 			   return -EINVAL;
              //  break;
@@ -1231,20 +1232,24 @@ s32 USBStorage_ScanLUN(void)
 				if(j>=maxLun) break;
 				continue;
 				}
-		   /*2022-03-05 now done right after USBStorage_Open()
+		   /*2022-03-05 vid pid now done right after USBStorage_Open()
            __vid=fd->desc.idVendor;
            __pid=fd->desc.idProduct;*/
-           __mounted[found] = 1;
-           __lun[found] = j++;
+           __mounted[found] = 1;	//mark found disk as mounted
+           __lun[found] = j++;		//remember LUN of found disk
 		   usb_timeout=1000*1000;
 		   try_status=0;
-		   ums_init_done=1;	// any success counts as UMS init done. e.g. If user sets USB Port to 1 for a single bay enclosure, we have just found LUN=0, and initialization is considered done. But the init itself is a failure because there is no LUN=1.
-		   //2022-03-02 yes we found a LUN but don't return just yet, until we have scanned both LUNs.
+		   // 2022-03-02 yes we found a LUN but don't return just yet, until we have scanned both
+		   // LUNs if port 1 is asked for.
 		   if (found++ >= current_port)
 	           return 0;
+		   /* If e.g. user sets USB Port to 1 for a single bay enclosure, we have just found LUN=0,
+		    * initialization is considered done. But the return code of the init itself is a failure
+			* because there is no LUN=1.
+			*/
        }
 	   try_status=-122;
-	   //2022-03-05 done by USBStorage_Close() __mounted = 0;
+	   //2022-03-05 mounted flag clearing done by USBStorage_Close() __mounted = 0;
 	   USBStorage_Close(&__usbfd);
 
 	   #ifdef MEM_PRINT
@@ -1258,7 +1263,7 @@ s32 USBStorage_ScanLUN(void)
 s32 USBStorage_Try_Device(struct ehci_device *fd)
 {
 	try_status=-120;
-	test_max_lun=1;
+	test_max_lun=1;	// We need to call get max LUN only once (or maybe zero times). Keep track of that with a flag.
 	if(USBStorage_Open(&__usbfd, fd) < 0)
 		return -EINVAL;
     __vid=fd->desc.idVendor;
@@ -1268,7 +1273,7 @@ s32 USBStorage_Try_Device(struct ehci_device *fd)
 
 void USBStorage_Umount(void)
 {
-	if(!ums_init_done) return;
+	if(!ums_mode) return;	// If USB Mass Storage init never done, no need to umount anything.
 	
 	if(__mounted[current_port] && !unplug_device)
 	{
@@ -1277,8 +1282,8 @@ void USBStorage_Umount(void)
 	}
 
 	USBStorage_Close(&__usbfd);
-	__lun[current_port] = 16;
-/* 2022-03-05 these are done by USBStorage_Close	__mounted=0;
+	__lun[current_port] = 16;	// remember umounted disk as bad LUN
+/* 2022-03-05 these are now done by USBStorage_Close	__mounted=0;
 	ums_init_done=0;
 	unplug_device=0; */
 }
@@ -1287,8 +1292,8 @@ void USBStorage_Umount(void)
 s32 USBStorage_Init(void)
 {
 	int i;
-	debug_printf("usbstorage init %d\n", ums_init_done);
-	if(ums_init_done)
+	debug_printf("usbstorage init %d\n", ums_mode);
+	if (ums_mode)
 		/* 2022-03-04 Assume worse-case behaviour from a single-bay HDD enclosure:
 		 * 1, querying max LUN would result in STALL
 		 * 2, if accessing LUN=1 without first checking not only will the USB mass storage not
@@ -1305,9 +1310,14 @@ s32 USBStorage_Init(void)
 		 * 
 		 * If Init is called a second time with current_port=1 we still need to scan the
 		 * second LUN. This is because during the first call we avoided running any max
-		 * LUN query.
+		 * LUN query. ScanLUN has the logic to continue scanning where we left off.
 		 */
 		return USBStorage_ScanLUN();
+	for (i=0; i<sizeof(__mounted)/sizeof(__mounted[0]); i++)
+	{
+		__mounted[i] = 0;	// first time init called - set everything umounted
+		__lun[i] = 16;		// and mark as wrong LUN
+	}
 	try_status=-1;      
 
 #ifdef MEM_PRINT
