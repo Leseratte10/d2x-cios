@@ -15,10 +15,10 @@
 
 [ DESCRIPTION ]
 
-  This is a Custom IOS, an IOS modified to add some new features
+  This is a custom IOS for the Wii console, i.e. an IOS modified to add some new features
   not available in the official IOS.
 
-  The d2xl cIOS is an enhanced version of the d2x cIOS, which is based on 
+  The d2xl cIOS is an enhanced version of the d2x cIOS, which is based on
   the cIOSX rev21 by Waninkoko. To see what's new read the file 
   Changelog.txt or visit the d2xl github project: https://github.com/Leseratte10/d2xl-cios
 
@@ -65,8 +65,8 @@
 - WiiPower, for the great help with ios reload block from usb.
 - dragbe and NutNut, for their d2x cios installer.
 - XFlak, for his wonderful ModMii which supported d2x wads since its birth.
-  Without ModMii d2x cios would probably never have existed. Also, XFlak had 
-  the original idea to replace the buggy EHCI module of cIOSX rev21 with the 
+  Without ModMii d2x cios would probably never have existed. Also, XFlak had
+  the original idea to replace the buggy EHCI module of cIOSX rev21 with the
   working one from rev19. 
 - HackWii.it and GBAtemp.net communities, for their ideas and support.
 - Totoro, for the official d2x logo
@@ -78,4 +78,5 @@
 - Hermes, for his EHCI improvements.
 - neimod, for the Custom IOS module.
 - xerpi, for fakemote (wired ps3/ps4 controller support).
+- cyberstudio, for 2-bay disk enclosure support.
 - All the betatesters.
