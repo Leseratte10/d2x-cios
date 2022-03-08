@@ -152,7 +152,8 @@ s32 __EHCI_Ioctlv(s32 fd, u32 cmd, ioctlv *vector, u32 inlen, u32 iolen, s32 *ac
 		ret = USBStorage_Init();
 
 		/* Set UMS mode */
-		ums_mode = fd;
+		if (ret >= 0)
+			ums_mode = fd;
 
 		break;
 	}

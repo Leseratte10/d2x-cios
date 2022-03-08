@@ -53,13 +53,51 @@ bool usbstorage_Startup(void)
 	return true;
 }
 
+// For a given USB port, scan for available drives
+bool usbstorage_Scan(void)
+{
+	int j = 0;		// LUN to start scanning from
+	int found = 0;	// "Port" to start scanning from
+    if (current_drive > 0)
+	{
+		for (found = current_drive; found > 0; found--)
+			if (0 != __mounted[found-1])
+			{
+				// This is where we left off the last time we last scanned for LUNs, and is where we start scanning this time.
+				j = __lun[found-1] + 1;
+				break;
+			}
+	}
+	/* Get LUN */
+	s32 maxLun = USBStorage_GetMaxLUN(&__usbfd);
+	bool success = false;
+	/* Mount LUN */
+	for (; j < maxLun; j++) {
+		s32 retval = USBStorage_MountLUN(&__usbfd, j);
+
+		if (retval == USBSTORAGE_ETIMEDOUT)
+			break;
+
+		if (retval < 0)
+			continue;
+
+		/* Set parameters */
+		__mounted[found] = true;
+		__lun[found] = j;
+		success = true;
+
+		if (found++ > current_drive)
+			break;
+	}
+	return success;
+}
+
 bool usbstorage_IsInserted(void)
 {
 	usb_device_entry *buffer;
 
-	u8  device_count, i, j;
+	u8  device_count, i;
 	u16 vid, pid;
-	s32 maxLun;
 	s32 retval;
 
 	/* USB not inited */
@@ -92,6 +130,9 @@ bool usbstorage_IsInserted(void)
 
 				usleep(50);
 
+				// We have seen the USB device before but we need to look for the exact drive (0 or 1) requested
+				if (!__mounted[current_drive])
+					usbstorage_Scan();
 				return __mounted[current_drive];
 			}
 		}
@@ -99,7 +140,7 @@ bool usbstorage_IsInserted(void)
 		goto err;
 	}
 
-	/* Reset flag */
+	/* Reset flag - USB device not previously seen so everything is unmounted */
 	for (i = 0; i < sizeof(__mounted)/sizeof(__mounted[0]); i++)
 		__mounted[i] = false;
 
@@ -116,39 +157,20 @@ bool usbstorage_IsInserted(void)
 		if (retval < 0)
 			continue;
 
-		/* Get LUN */
-		maxLun = USBStorage_GetMaxLUN(&__usbfd);
-
-		int found = 0;
-		/* Mount LUN */
-		for (j = 0; j < maxLun; j++) {
-			retval = USBStorage_MountLUN(&__usbfd, j);
-
-			if (retval == USBSTORAGE_ETIMEDOUT)
-				break;
-
-			if (retval < 0)
-				continue;
-
-			/* Set parameters */
-			__mounted[found] = true;
-			__lun[found] = j;
+		// If scan finds any drive, record as success by remembering vid/pid
+		if (usbstorage_Scan())
+		{
 			__vid = vid;
 			__pid = pid;
-
-			if (++found >= sizeof(__mounted)/sizeof(__mounted[0]))
-				break;
+			/* Device mounted - we don't care if the requested LUN exist or not, if LUN=1 is asked for but max LUN is 0, it's an error. */
+			break;
 		}
 
-		/* Device mounted - we don't care if the requested LUN exist or not, if LUN=1 is asked for but max LUN is 0, it's an error. */
-		if (__vid || __pid)
-			break;
-
-		/* Close device */
+		/* If scan finds nothing, close device */
 		USBStorage_Close(&__usbfd);
 	}
 
-	/* No device mounted - if we have found zero drives __vid and __pid will be zeros, and we would have already closed the USB Storage above. No need to kill again. */
+	/* Even if requested drive not mounted we must not kill the entire device. Just return failure. */
 //	if (!__mounted)
 //		goto err;
 
@@ -159,8 +181,12 @@ err:
 	USBStorage_Close(&__usbfd);
 
 	/* Clear parameters */
-	__mounted[current_drive] = false;
-	__lun[current_drive] = 0;
+	for (i = 0; i < sizeof(__mounted)/sizeof(__mounted[0]); i++)
+	{
+		__mounted[i] = false;
+		__lun[i] = 0;
+	}
+	__inited = false;
 	__vid = 0;
 	__pid = 0;
 
