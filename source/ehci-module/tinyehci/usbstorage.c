@@ -1158,7 +1158,7 @@ s32 USBStorage_Read_Stress(u32 sector, u32 numSectors, void *buffer)
 int test_max_lun=1;
 s32 USBStorage_ScanLUN(void)
 {
-	if (__mounted[current_port])
+	if (__mounted[current_port] && !unplug_device)
 		return 0;
 
 	int maxLun,j,retval;
@@ -1268,6 +1268,12 @@ s32 USBStorage_Try_Device(struct ehci_device *fd)
 		return -EINVAL;
     __vid=fd->desc.idVendor;
     __pid=fd->desc.idProduct;
+	int i;
+	for (i=0; i<sizeof(__mounted)/sizeof(__mounted[0]); i++)
+	{
+		__mounted[i] = 0;	// If we are (re)opening USB we are (re)scanning all LUNs. Mark all drives as unmounted.
+		__lun[i] = 16;		// and mark as wrong LUN
+	}
 	return USBStorage_ScanLUN();
 }
 
@@ -1313,11 +1319,6 @@ s32 USBStorage_Init(void)
 		 * LUN query. ScanLUN has the logic to continue scanning where we left off.
 		 */
 		return USBStorage_ScanLUN();
-	for (i=0; i<sizeof(__mounted)/sizeof(__mounted[0]); i++)
-	{
-		__mounted[i] = 0;	// first time init called - set everything umounted
-		__lun[i] = 16;		// and mark as wrong LUN
-	}
 	try_status=-1;      
 
 #ifdef MEM_PRINT
@@ -1412,6 +1413,7 @@ int unplug_procedure(void)
 				if(ehci_reset_port(0)>=0)
 				{
 					handshake_mode=1;
+					ums_mode = 0;	// mark the entire USB Mass Storage as uninitialized. We are initializing it now.
 					if(USBStorage_Try_Device(__usbfd.usb_fd)==0) {retval=0;unplug_device=0;}
 					handshake_mode=0;
 				}
@@ -1448,7 +1450,14 @@ s32 USBStorage_Read_Sectors(u32 sector, u32 numSectors, void *buffer)
 		   }
 		 if(unplug_device!=0 ) continue;
 		 //if(retval==-ENODEV) return 0;
-		 usb_timeout=1000*1000; // 4 seconds to wait
+		 /* This is NOT a syscall to some os timer. It is implemented with direct hardware register
+		  * access.
+		  *
+		  * "The Hollywood includes a simple 32-bit timer running at 1/128th of the Starlet core clock
+		  * frequency (~243Mhz)... The timer register is incremented every 1/128th of the core clock
+		  * frequency, or around every 526.7 nanoseconds." - wiibrew.org
+		  */
+		 usb_timeout=1000*1000;
 	    if(retval >= 0)
 		   retval = USBStorage_Read(&__usbfd, __lun[current_port], sector, numSectors, buffer);
 		usb_timeout=1000*1000;
@@ -1494,7 +1503,7 @@ s32 USBStorage_Write_Sectors(u32 sector, u32 numSectors, const void *buffer)
 		   //if(retval>=0) retval=-666;
 		   }
 		  if(unplug_device!=0 ) continue;
-		 usb_timeout=1000*1000; // 4 seconds to wait
+		 usb_timeout=1000*1000;	// same as Read above
 	    if(retval >=0)
 		   retval = USBStorage_Write(&__usbfd, __lun[current_port], sector, numSectors, buffer);
 		usb_timeout=1000*1000;

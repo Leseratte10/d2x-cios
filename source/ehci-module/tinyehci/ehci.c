@@ -13,6 +13,7 @@
  * Copyright (c) 2009 Hermes.
  * Copyright (c) 2011 rodries.
  * Copyright (c) 2011 davebaol.
+ * Copyright (c) 2022 cyberstudio
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -766,7 +767,7 @@ int ehci_reset_port_old(int port)
                           port, retval);*/
                
 			ehci_dbg ( "port %d reseted status:%04x...\n", port,ehci_readl(status_reg));
-			ehci_msleep(100);
+			ehci_msleep(240);	// tried msleep(178) with a JMS551 controller (2-bay drive enclosure), hang when drive wakes up from sleep
 			// now the device has the default device id
 			retval = ehci_control_message(dev,USB_CTRLTYPE_DIR_DEVICE2HOST,
                              USB_REQ_GETDESCRIPTOR,USB_DT_DEVICE<<8,0,sizeof(dev->desc),&dev->desc);
