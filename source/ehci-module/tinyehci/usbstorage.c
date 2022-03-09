@@ -1432,9 +1432,16 @@ s32 USBStorage_Read_Sectors(u32 sector, u32 numSectors, void *buffer)
    if(__mounted[current_port] != 1)
        return false;
    
-   for(retry=0;retry<16;retry++)
-	{
-	 if(retry>12) retry=12; // infinite loop
+   for(retry=0;retry<20;retry++)
+	{	/* Previously, a read never returns failure. It would rather spin in an infinite loop for a bad
+	     * sector. This is understandable. Many callers are not checking if the operation succeeds, and
+		 * the corrupt data read will cause something disastrous down the road. But still, I think an
+		 * infinite loop is too harsh. My new algorithm is to time out after 1 sec, reset, and then
+		 * increase time out to 2 seconds, reset, and 3 seconds, and so on, until it reaches 20 seconds.
+		 * After 20 retries we will have already spent 3.5 minutes on this, which in practice is no
+		 * different from a hang. I doubt if any user has that much patience.
+		 */
+//	 if(retry>12) retry=12; // infinite loop
 	//ehci_usleep(100);
 	 if(!unplug_procedure())
 		{
@@ -1457,7 +1464,7 @@ s32 USBStorage_Read_Sectors(u32 sector, u32 numSectors, void *buffer)
 		  * frequency (~243Mhz)... The timer register is incremented every 1/128th of the core clock
 		  * frequency, or around every 526.7 nanoseconds." - wiibrew.org
 		  */
-		 usb_timeout=1000*1000;
+		 usb_timeout=(retry+1)*1898438;
 	    if(retval >= 0)
 		   retval = USBStorage_Read(&__usbfd, __lun[current_port], sector, numSectors, buffer);
 		usb_timeout=1000*1000;
@@ -1466,11 +1473,8 @@ s32 USBStorage_Read_Sectors(u32 sector, u32 numSectors, void *buffer)
 		if(retval>=0) break;
 	}
 
-  /* if(retval == USBSTORAGE_ETIMEDOUT)
-   {
-       __mounted = 0;
+   if(retval == USBSTORAGE_ETIMEDOUT)
        USBStorage_Close(&__usbfd);
-   }*/
    if(retval < 0)
        return false;
    return true;
@@ -1485,9 +1489,9 @@ s32 USBStorage_Write_Sectors(u32 sector, u32 numSectors, const void *buffer)
    if(__mounted[current_port] != 1)
        return false;
 
-    for(retry=0;retry<16;retry++)
+    for(retry=0;retry<20;retry++)
 	{
-	 if(retry>12) retry=12; // infinite loop
+//	 if(retry>12) retry=12; // infinite loop
 	
 	//ehci_usleep(100);
 
@@ -1503,7 +1507,7 @@ s32 USBStorage_Write_Sectors(u32 sector, u32 numSectors, const void *buffer)
 		   //if(retval>=0) retval=-666;
 		   }
 		  if(unplug_device!=0 ) continue;
-		 usb_timeout=1000*1000;	// same as Read above
+		 usb_timeout=(retry+1)*1898438;	// same as Read above
 	    if(retval >=0)
 		   retval = USBStorage_Write(&__usbfd, __lun[current_port], sector, numSectors, buffer);
 		usb_timeout=1000*1000;
@@ -1511,15 +1515,8 @@ s32 USBStorage_Write_Sectors(u32 sector, u32 numSectors, const void *buffer)
 		if(retval>=0) break;
 	}
 
-
-  /* retval = USBStorage_Write(&__usbfd, __lun, sector, numSectors, buffer);
    if(retval == USBSTORAGE_ETIMEDOUT)
-   {
-       __mounted = 0;
        USBStorage_Close(&__usbfd);
-   }
-   */
-
 
    if(retval < 0)
        return false;
