@@ -557,13 +557,20 @@ error:
 	return retval;
 }
 
-
-
+/* "The Hollywood includes a simple 32-bit timer running at 1/128th of the Starlet core clock
+ * frequency (~243Mhz)... The timer register is incremented every 1/128th of the core clock
+ * frequency, or around every 526.7 nanoseconds." - wiibrew.org
+ */
+#define STARLET_HW_TIMER_ONE_SECOND	(243*1000000/128)
+/* This is actually 2 seconds because handshake shifts the timeout left by 1 bit. I had a WD
+ * Scorpio Blue pulled from a WD NAS router that flunked a 1s timeout and requires 2s.
+ */
+#define DEFAULT_USB_TIMEOUT	(STARLET_HW_TIMER_ONE_SECOND)
 static s32 __usbstorage_reset(usbstorage_handle *dev,int hard_reset)
 {
 	s32 retval;
 	u32 old_usb_timeout=usb_timeout; 
-	usb_timeout=1000*1000;
+	usb_timeout=(DEFAULT_USB_TIMEOUT);
     //int retry = hard_reset;
     int retry = 0;  //first try soft reset
  retry:
@@ -947,7 +954,7 @@ s32 USBStorage_MountLUN(usbstorage_handle *dev, u8 lun)
 
 	if(lun >= dev->max_lun)
 		return -EINVAL;
-	usb_timeout=1000*1000;
+	usb_timeout=(DEFAULT_USB_TIMEOUT);
 	handshake_mode=1;
 
 	retval= __usbstorage_start_stop(dev, lun, 1);
@@ -961,7 +968,7 @@ s32 USBStorage_MountLUN(usbstorage_handle *dev, u8 lun)
 	retval = __usbstorage_clearerrors(dev, lun);
 	if(retval < 0)
 		goto ret;
-	usb_timeout=1000*1000;
+	usb_timeout=(DEFAULT_USB_TIMEOUT);
 	retval = USBStorage_Inquiry(dev, lun);
 	#ifdef MEM_PRINT
 	   s_printf("    Inquiry ret %i\n",retval);
@@ -1122,6 +1129,8 @@ s32 ret=-1;
 
 return ret;
 }
+
+extern u32 next_sector;
 /*
 The following is for implementing the ioctl interface inpired by the disc_io.h
 as used by libfat
@@ -1136,6 +1145,7 @@ s32 USBStorage_Read_Stress(u32 sector, u32 numSectors, void *buffer)
 {
    s32 retval;
    int i;
+   next_sector=sector+numSectors;
    if(__mounted[current_port] != 1)
        return false;
    
@@ -1237,7 +1247,7 @@ s32 USBStorage_ScanLUN(void)
            __pid=fd->desc.idProduct;*/
            __mounted[found] = 1;	//mark found disk as mounted
            __lun[found] = j++;		//remember LUN of found disk
-		   usb_timeout=1000*1000;
+		   usb_timeout=(DEFAULT_USB_TIMEOUT);
 		   try_status=0;
 		   // 2022-03-02 yes we found a LUN but don't return just yet, until we have scanned both
 		   // LUNs if port 1 is asked for.
@@ -1282,7 +1292,7 @@ void USBStorage_Umount(void)
 	if(!ums_mode) return;	// If USB Mass Storage init never done, no need to umount anything.
 	
 	if(__mounted[current_port] && !unplug_device)
-	{
+	{	// Umount and Close are almost synonyms because we are very averse to spin down anything. The spin down code is commented out.
 		if(__usbstorage_start_stop(&__usbfd, __lun[current_port], 0x0)==0) // stop
 		ehci_msleep(1000);
 	}
@@ -1429,21 +1439,22 @@ s32 USBStorage_Read_Sectors(u32 sector, u32 numSectors, void *buffer)
 {
    s32 retval=0;
    int retry;
+   next_sector=sector+numSectors;
    if(__mounted[current_port] != 1)
        return false;
    
-   for(retry=0;retry<20;retry++)
+   for(retry=0;retry<6;retry++)
 	{	/* Previously, a read never returns failure. It would rather spin in an infinite loop for a bad
 	     * sector. This is understandable. Many callers are not checking if the operation succeeds, and
 		 * the corrupt data read will cause something disastrous down the road. But still, I think an
-		 * infinite loop is too harsh. My new algorithm is to time out after 1 sec, reset, and then
-		 * increase time out to 2 seconds, reset, and 3 seconds, and so on, until it reaches 20 seconds.
-		 * After 20 retries we will have already spent 3.5 minutes on this, which in practice is no
+		 * infinite loop is too harsh. My new algorithm is to time out after 2 secs, reset, and then
+		 * increase time out to 4 seconds, reset, and 8 seconds, and so on, until it reaches 64 seconds.
+		 * After 6 retries we will have already spent >2 minutes on this, which in practice is no
 		 * different from a hang. I doubt if any user has that much patience.
 		 */
 //	 if(retry>12) retry=12; // infinite loop
 	//ehci_usleep(100);
-	 if(!unplug_procedure())
+	 if(!unplug_procedure())	//This never returns false UNLESS a dismount/remount has taken place AND that was successful
 		{
 		 retval=0;
 		}
@@ -1455,19 +1466,17 @@ s32 USBStorage_Read_Sectors(u32 sector, u32 numSectors, void *buffer)
 		   if(retval>=0) retval=-666;
 		   ehci_msleep(10);*/
 		   }
-		 if(unplug_device!=0 ) continue;
+		 if(unplug_device!=0 ) continue;	// for a TIMEOUT we are skipping 1 retry and go straight from e.g. a 1s timeout to 4s. That's fine. The disk may be spinning up.
 		 //if(retval==-ENODEV) return 0;
 		 /* This is NOT a syscall to some os timer. It is implemented with direct hardware register
 		  * access.
-		  *
-		  * "The Hollywood includes a simple 32-bit timer running at 1/128th of the Starlet core clock
-		  * frequency (~243Mhz)... The timer register is incremented every 1/128th of the core clock
-		  * frequency, or around every 526.7 nanoseconds." - wiibrew.org
+		  * 
+		  * handshake() will multiply timeout by 2, so 1898438 means 2 seconds.
 		  */
-		 usb_timeout=(retry+1)*1898438;
+		 usb_timeout=(DEFAULT_USB_TIMEOUT)<<retry;
 	    if(retval >= 0)
 		   retval = USBStorage_Read(&__usbfd, __lun[current_port], sector, numSectors, buffer);
-		usb_timeout=1000*1000;
+		usb_timeout=(DEFAULT_USB_TIMEOUT);
 		if(unplug_device!=0 ) continue;
 		 //if(retval==-ENODEV) return 0;
 		if(retval>=0) break;
@@ -1485,11 +1494,11 @@ s32 USBStorage_Write_Sectors(u32 sector, u32 numSectors, const void *buffer)
 {
    s32 retval=0;
    int retry;
-
+   next_sector=sector+numSectors;
    if(__mounted[current_port] != 1)
        return false;
 
-    for(retry=0;retry<20;retry++)
+    for(retry=0;retry<6;retry++)
 	{
 //	 if(retry>12) retry=12; // infinite loop
 	
@@ -1507,10 +1516,10 @@ s32 USBStorage_Write_Sectors(u32 sector, u32 numSectors, const void *buffer)
 		   //if(retval>=0) retval=-666;
 		   }
 		  if(unplug_device!=0 ) continue;
-		 usb_timeout=(retry+1)*1898438;	// same as Read above
+		 usb_timeout=(DEFAULT_USB_TIMEOUT)<<retry;	// same as Read above
 	    if(retval >=0)
 		   retval = USBStorage_Write(&__usbfd, __lun[current_port], sector, numSectors, buffer);
-		usb_timeout=1000*1000;
+		usb_timeout=(DEFAULT_USB_TIMEOUT);
 		if(unplug_device!=0 ) continue;
 		if(retval>=0) break;
 	}

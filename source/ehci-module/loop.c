@@ -296,6 +296,7 @@ s32 __EHCI_OpenDevice(char *devname, s32 fd)
 	return ehci_open_device(vid, pid, fd);
 }
 
+u32 next_sector;
 void __EHCI_Watchdog(void)
 {
 	void *buffer = NULL;
@@ -313,8 +314,10 @@ void __EHCI_Watchdog(void)
 			if (!buffer)
 				return;
 
-			/* Read random sector */
-			USBStorage_Read_Sectors(rand() % nbSectors, 1, buffer);
+			/* Any random sector will keep the drive awake, but to save drive head from moving around much, read
+			 * something close by. This is done once every 10 seconds. You will notice that the hard disk 'click'
+			 * that occurs every 10 seconds in previous versions to be gone. */
+			USBStorage_Read_Sectors(next_sector>=nbSectors ? nbSectors-1 : next_sector, 1, buffer);
 
 			/* Free buffer */
 			Mem_Free(buffer);
