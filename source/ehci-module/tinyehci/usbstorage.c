@@ -470,7 +470,16 @@ static s32 __cycle(usbstorage_handle *dev, u8 lun, u8 *buffer, u32 len, u8 *cb, 
 
 static s32 __usbstorage_start_stop(usbstorage_handle *dev, u8 lun, u8 start_stop)
 {
-	#if 0
+	#if 1
+	/* For a decade we've commented out this code. But I am reinstating this, because we want spin up. Spin up is
+	 * the solution to error handling and must not be commented out, whereas spin down causes stutter, or worse,
+	 * errors, and better not be called.
+	 *
+	 * There is a watchdog thread that keeps the currently used drive active by reading some sector every 10
+	 * seconds. The other drive should go to sleep. That's by design because there is no point keeping both drives
+	 * running. But this means there is a chance the other drive will be called to duty again in the future and it
+	 * needs to be spun up.
+	 */
 	s32 retval;
 	u8 cmd[16];
 	
@@ -483,12 +492,11 @@ static s32 __usbstorage_start_stop(usbstorage_handle *dev, u8 lun, u8 start_stop
 	cmd[5] = 0;
 	//memset(sense, 0, SCSI_SENSE_REPLY_SIZE);
 	retval = __cycle(dev, lun, NULL, 0, cmd, 6, 0, &status, NULL);
-//	if(retval < 0) goto error;
+	if(retval < 0) goto error;
 
-/*	
 	if(status == SCSI_SENSE_NOT_READY || status == SCSI_SENSE_MEDIUM_ERROR || status == SCSI_SENSE_HARDWARE_ERROR) 
-					retval = USBSTORAGE_ESENSE;*/
-//error:
+					retval = USBSTORAGE_ESENSE;
+error:
 	return retval;
 	#else
 	return 0;
@@ -561,11 +569,13 @@ error:
  * frequency (~243Mhz)... The timer register is incremented every 1/128th of the core clock
  * frequency, or around every 526.7 nanoseconds." - wiibrew.org
  */
-#define STARLET_HW_TIMER_ONE_SECOND	(243*1000000/128)
+#define STARLET_HW_TIMER_ONE_SECOND	(243UL*1000000UL/128UL)
 /* This is actually 2 seconds because handshake shifts the timeout left by 1 bit. I had a WD
- * Scorpio Blue pulled from a WD NAS router that flunked a 1s timeout and requires 2s.
+ * Scorpio Blue pulled from a WD NAS router that flunked a 1s timeout and requires at least 2s.
+ * Furthermore, keeping on resetting as an error handling measure during spin up only results
+ * in a hang. The solution is to properly issue a SCSCI START STOP command to make it spin up.
  */
-#define DEFAULT_USB_TIMEOUT	(STARLET_HW_TIMER_ONE_SECOND)
+#define DEFAULT_USB_TIMEOUT	(1UL*(STARLET_HW_TIMER_ONE_SECOND))
 static s32 __usbstorage_reset(usbstorage_handle *dev,int hard_reset)
 {
 	s32 retval;
@@ -968,7 +978,7 @@ s32 USBStorage_MountLUN(usbstorage_handle *dev, u8 lun)
 	retval = __usbstorage_clearerrors(dev, lun);
 	if(retval < 0)
 		goto ret;
-	usb_timeout=(DEFAULT_USB_TIMEOUT);
+	usb_timeout=1000*1000;
 	retval = USBStorage_Inquiry(dev, lun);
 	#ifdef MEM_PRINT
 	   s_printf("    Inquiry ret %i\n",retval);
@@ -1131,6 +1141,28 @@ return ret;
 }
 
 extern u32 next_sector;
+// Before reading/writing any sector, check if drive is mounted first
+static bool check_if_dismounted(u32 sector)
+{
+	next_sector = sector;	// remember some close-by sector for the watchdog thread
+	if(__mounted[current_port])
+		return false;		// already mounted. Good.
+
+	if(!ums_mode)			// If USB Mass Storage init never done, no hope.
+		return true;
+
+	if(__lun[current_port] >= 16)
+		return true;		// Previous dismount, also no hope.
+
+	if(USBStorage_MountLUN(&__usbfd, __lun[current_port])>=0)
+	{
+		__mounted[current_port] = 1;
+		return false;		// successful wakeup. Good.
+	}
+
+	return true;
+}
+
 /*
 The following is for implementing the ioctl interface inpired by the disc_io.h
 as used by libfat
@@ -1145,8 +1177,7 @@ s32 USBStorage_Read_Stress(u32 sector, u32 numSectors, void *buffer)
 {
    s32 retval;
    int i;
-   next_sector=sector+numSectors;
-   if(__mounted[current_port] != 1)
+   if(check_if_dismounted(sector+numSectors))
        return false;
    
    for(i=0;i<512;i++){
@@ -1163,7 +1194,6 @@ s32 USBStorage_Read_Stress(u32 sector, u32 numSectors, void *buffer)
    return true;
 
 }
-
 
 int test_max_lun=1;
 s32 USBStorage_ScanLUN(void)
@@ -1189,7 +1219,7 @@ s32 USBStorage_ScanLUN(void)
     if (current_port > 0)
 	{
 		for (found = current_port; found > 0; found--)
-			if (0 != __mounted[found-1])
+			if(__lun[found-1] < 16)
 			{
 				// This is where we left off the last time we last scanned for LUNs, and is where we start scanning this time.
 				j = __lun[found-1] + 1;
@@ -1273,7 +1303,7 @@ s32 USBStorage_ScanLUN(void)
 s32 USBStorage_Try_Device(struct ehci_device *fd)
 {
 	try_status=-120;
-	test_max_lun=1;	// We need to call get max LUN only once (or maybe zero times). Keep track of that with a flag.
+	test_max_lun=1;			// We need to call get max LUN only once (or maybe zero times). Keep track of that with a flag.
 	if(USBStorage_Open(&__usbfd, fd) < 0)
 		return -EINVAL;
     __vid=fd->desc.idVendor;
@@ -1289,14 +1319,14 @@ s32 USBStorage_Try_Device(struct ehci_device *fd)
 
 void USBStorage_Umount(void)
 {
-	if(!ums_mode) return;	// If USB Mass Storage init never done, no need to umount anything.
+	// if(!ums_mode) return;	// If USB Mass Storage init never done, no need to umount anything.
 	
-	if(__mounted[current_port] && !unplug_device)
-	{	// Umount and Close are almost synonyms because we are very averse to spin down anything. The spin down code is commented out.
-		if(__usbstorage_start_stop(&__usbfd, __lun[current_port], 0x0)==0) // stop
-		ehci_msleep(1000);
-	}
-
+	// if(__mounted[current_port] && !unplug_device)
+	// {
+	// 	if(__usbstorage_start_stop(&__usbfd, __lun[current_port], 0x0)==0) // stop
+	// 	ehci_msleep(1000);
+	// }
+	// Umount and Close are almost synonyms because we are very averse to spin down anything.
 	USBStorage_Close(&__usbfd);
 	__lun[current_port] = 16;	// remember umounted disk as bad LUN
 /* 2022-03-05 these are now done by USBStorage_Close	__mounted=0;
@@ -1423,8 +1453,23 @@ int unplug_procedure(void)
 				if(ehci_reset_port(0)>=0)
 				{
 					handshake_mode=1;
-					ums_mode = 0;	// mark the entire USB Mass Storage as uninitialized. We are initializing it now.
-					if(USBStorage_Try_Device(__usbfd.usb_fd)==0) {retval=0;unplug_device=0;}
+					// If we rescan we will be killing both drives. We should not kill the other drive merely because
+					// the current drive has an error.
+					//
+					// For brevity we do not enumerate the other drive(s) assuming there are only 2 drives at most.
+					// If this changes in the future we will need to loop through all drives instead.
+					int other_port = current_port ^ 1;
+					if(__mounted[other_port])
+					{	//Just try our luck and remount it.
+						retval=0;
+						unplug_device=0;
+						__mounted[current_port]=0;
+					}
+					else
+					{
+						ums_mode = 0;	// mark the entire USB Mass Storage as uninitialized. We are initializing it now.
+						if(USBStorage_Try_Device(__usbfd.usb_fd)==0) {retval=0;unplug_device=0;}
+					}
 					handshake_mode=0;
 				}
 
@@ -1439,15 +1484,14 @@ s32 USBStorage_Read_Sectors(u32 sector, u32 numSectors, void *buffer)
 {
    s32 retval=0;
    int retry;
-   next_sector=sector+numSectors;
-   if(__mounted[current_port] != 1)
+   if(check_if_dismounted(sector+numSectors))
        return false;
    
    for(retry=0;retry<6;retry++)
 	{	/* Previously, a read never returns failure. It would rather spin in an infinite loop for a bad
 	     * sector. This is understandable. Many callers are not checking if the operation succeeds, and
 		 * the corrupt data read will cause something disastrous down the road. But still, I think an
-		 * infinite loop is too harsh. My new algorithm is to time out after 2 secs, reset, and then
+		 * infinite loop is too harsh. The new algorithm is to time out after 2 secs, reset, and then
 		 * increase time out to 4 seconds, reset, and 8 seconds, and so on, until it reaches 64 seconds.
 		 * After 6 retries we will have already spent >2 minutes on this, which in practice is no
 		 * different from a hang. I doubt if any user has that much patience.
@@ -1466,7 +1510,7 @@ s32 USBStorage_Read_Sectors(u32 sector, u32 numSectors, void *buffer)
 		   if(retval>=0) retval=-666;
 		   ehci_msleep(10);*/
 		   }
-		 if(unplug_device!=0 ) continue;	// for a TIMEOUT we are skipping 1 retry and go straight from e.g. a 1s timeout to 4s. That's fine. The disk may be spinning up.
+		 if(unplug_device!=0 ) continue;	// for a TIMEOUT we are skipping 1 retry and go straight from e.g. a 2s timeout to 8s. That's fine. The disk may be spinning up.
 		 //if(retval==-ENODEV) return 0;
 		 /* This is NOT a syscall to some os timer. It is implemented with direct hardware register
 		  * access.
@@ -1476,7 +1520,7 @@ s32 USBStorage_Read_Sectors(u32 sector, u32 numSectors, void *buffer)
 		 usb_timeout=(DEFAULT_USB_TIMEOUT)<<retry;
 	    if(retval >= 0)
 		   retval = USBStorage_Read(&__usbfd, __lun[current_port], sector, numSectors, buffer);
-		usb_timeout=(DEFAULT_USB_TIMEOUT);
+		usb_timeout=1000*1000;
 		if(unplug_device!=0 ) continue;
 		 //if(retval==-ENODEV) return 0;
 		if(retval>=0) break;
@@ -1494,8 +1538,8 @@ s32 USBStorage_Write_Sectors(u32 sector, u32 numSectors, const void *buffer)
 {
    s32 retval=0;
    int retry;
-   next_sector=sector+numSectors;
-   if(__mounted[current_port] != 1)
+
+   if(check_if_dismounted(sector+numSectors))
        return false;
 
     for(retry=0;retry<6;retry++)
@@ -1519,7 +1563,7 @@ s32 USBStorage_Write_Sectors(u32 sector, u32 numSectors, const void *buffer)
 		 usb_timeout=(DEFAULT_USB_TIMEOUT)<<retry;	// same as Read above
 	    if(retval >=0)
 		   retval = USBStorage_Write(&__usbfd, __lun[current_port], sector, numSectors, buffer);
-		usb_timeout=(DEFAULT_USB_TIMEOUT);
+		usb_timeout=1000*1000;
 		if(unplug_device!=0 ) continue;
 		if(retval>=0) break;
 	}
