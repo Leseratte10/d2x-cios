@@ -6,7 +6,7 @@ Copyright (C) 2008
 Sven Peter (svpe) <svpe@gmx.net>
 
 quick port to ehci/ios: Kwiirk
-
+Copyright (C) 2011 davebaol
 Copyright (C) 2022 cyberstudio
 
 This software is provided 'as-is', without any express or implied
@@ -89,7 +89,7 @@ extern u32 ums_mode;       //2022-03-05 USB Mass Storage init should be done onc
 
 extern int handshake_mode; // 0->timeout force -ENODEV 1->timeout return -ETIMEDOUT
 
-static bool first_access=true;
+//static bool first_access=true;
 
 static usbstorage_handle __usbfd;
 static u8 __lun[2] = {16,16};
@@ -575,12 +575,12 @@ error:
  * Furthermore, keeping on resetting as an error handling measure during spin up only results
  * in a hang. The solution is to properly issue a SCSCI START STOP command to make it spin up.
  */
-#define DEFAULT_USB_TIMEOUT	(1UL*(STARLET_HW_TIMER_ONE_SECOND))
+#define DEFAULT_UMS_TIMEOUT	(1UL*(STARLET_HW_TIMER_ONE_SECOND))
 static s32 __usbstorage_reset(usbstorage_handle *dev,int hard_reset)
 {
 	s32 retval;
 	u32 old_usb_timeout=usb_timeout; 
-	usb_timeout=(DEFAULT_USB_TIMEOUT);
+	usb_timeout=(DEFAULT_UMS_TIMEOUT);
     //int retry = hard_reset;
     int retry = 0;  //first try soft reset
  retry:
@@ -696,10 +696,10 @@ s32 USBStorage_Open(usbstorage_handle *dev, struct ehci_device *fd)
 	usb_interfacedesc *uid;
 	usb_endpointdesc *ued;
 	
-	__lun[current_port]= 16; // select bad LUN
-
-	max_lun = USB_Alloc(1);
-	if(max_lun==NULL) return -ENOMEM;
+//	__lun[current_port]= 16; // select bad LUN
+	// We won't get max LUN at all - that's deferred until the user asks for Drive 1, or if Drive 0 is not found. Maybe never.
+//	max_lun = USB_Alloc(1);
+//	if(max_lun==NULL) return -ENOMEM;
 
 	memset(dev, 0, sizeof(*dev));
 
@@ -725,7 +725,7 @@ s32 USBStorage_Open(usbstorage_handle *dev, struct ehci_device *fd)
 		{
 		if(my_memcmp((void *) &_old_udd, (void *) &udd, sizeof(usb_devdesc)-4)) 
 			{
-			USB_Free(max_lun);
+//			USB_Free(max_lun);
 			USB_FreeDescriptors(&udd);
 			#ifdef MEM_PRINT
 			s_printf("USBStorage_Open(): device changed!!!\n");
@@ -875,8 +875,8 @@ found:
 	if(retval == USBSTORAGE_ETIMEDOUT)*/
 
 	/* NOTE: from usbmassbulk_10.pdf "Devices that do not support multiple LUNs may STALL this command." */
-		dev->max_lun = 1; // max_lun can be from 1 to 16, but some devices do not support lun 2022-03-05 assume single drive by default
-	
+	dev->max_lun = 1; // max_lun can be from 1 to 16, but some devices do not support lun.
+	// Assume single drive by default. We will query maxlun IF user asks for Drive 1 OR LUN 0 cannot be mounted.
 	retval = USBSTORAGE_OK;
 
 	/*if(dev->max_lun == 0)
@@ -964,7 +964,7 @@ s32 USBStorage_MountLUN(usbstorage_handle *dev, u8 lun)
 
 	if(lun >= dev->max_lun)
 		return -EINVAL;
-	usb_timeout=(DEFAULT_USB_TIMEOUT);
+	usb_timeout=(DEFAULT_UMS_TIMEOUT);
 	handshake_mode=1;
 
 	retval= __usbstorage_start_stop(dev, lun, 1);
@@ -1195,7 +1195,7 @@ s32 USBStorage_Read_Stress(u32 sector, u32 numSectors, void *buffer)
 
 }
 
-int test_max_lun=1;
+int test_max_lun=1;	// we only get max lun once and here is the flag to remember it.
 s32 USBStorage_ScanLUN(void)
 {
 	if (__mounted[current_port] && !unplug_device)
@@ -1277,7 +1277,7 @@ s32 USBStorage_ScanLUN(void)
            __pid=fd->desc.idProduct;*/
            __mounted[found] = 1;	//mark found disk as mounted
            __lun[found] = j++;		//remember LUN of found disk
-		   usb_timeout=(DEFAULT_USB_TIMEOUT);
+		   usb_timeout=1000*1000;
 		   try_status=0;
 		   // 2022-03-02 yes we found a LUN but don't return just yet, until we have scanned both
 		   // LUNs if port 1 is asked for.
@@ -1380,7 +1380,9 @@ s_printf("\n***************************************************\nUSBStorage_Init
 
 				if(USBStorage_Try_Device(dev)==0) 
 				{
-					first_access=true;handshake_mode=0;unplug_device=0;
+					//first_access=true;
+					handshake_mode=0;
+					unplug_device=0;
 					#ifdef MEM_PRINT
 					s_printf("USBStorage_Init() Ok\n");
 									
@@ -1442,44 +1444,50 @@ int unplug_procedure(void)
 
 	if(unplug_device!=0 )
 	{
-			
+		__mounted[current_port]=0;			
 		if(__usbfd.usb_fd)
-			if(ehci_reset_port2(/*__usbfd.usb_fd->port*/0)>=0)	
+		{
+			// If we rescan we will be killing both drives. If the scan returns drives in a different order we
+			// will have data corruption. Check first to see if the other drive is mounted.
+			//
+			// For brevity we do not enumerate the other drive(s) assuming there are only 2 drives at most.
+			// If this changes in the future we will need to loop through all drives instead.
+			int other_port = current_port ^ 1;
+			if(__mounted[other_port])
+			{
+				retval=USBStorage_Reset(&__usbfd)<0;	// The only remedy is to recover from the timeout
+				unplug_device=0;
+				// Just try our luck and remount it. check_if_dismounted() will automount it again.
+			}
+			else if(ehci_reset_port2(/*__usbfd.usb_fd->port*/0)>=0)	
 			{
 				if(__usbfd.buffer != NULL)
 					USB_Free(__usbfd.buffer);
 				__usbfd.buffer= NULL;
 
 				if(ehci_reset_port(0)>=0)
-				{
+				{	// I am keeping the single drive case exactly the same as d2x-v10
 					handshake_mode=1;
-					// If we rescan we will be killing both drives. We should not kill the other drive merely because
-					// the current drive has an error.
-					//
-					// For brevity we do not enumerate the other drive(s) assuming there are only 2 drives at most.
-					// If this changes in the future we will need to loop through all drives instead.
-					int other_port = current_port ^ 1;
-					if(__mounted[other_port])
-					{	//Just try our luck and remount it.
+					if(USBStorage_Try_Device(__usbfd.usb_fd)==0)
+					{
 						retval=0;
 						unplug_device=0;
-						__mounted[current_port]=0;
 					}
 					else
-					{
-						ums_mode = 0;	// mark the entire USB Mass Storage as uninitialized. We are initializing it now.
-						if(USBStorage_Try_Device(__usbfd.usb_fd)==0) {retval=0;unplug_device=0;}
-					}
+						ums_mode=0;	// mark the entire USB Mass Storage as having been killed
 					handshake_mode=0;
 				}
-
+				else
+					ums_mode=0;		// mark the entire USB Mass Storage as having been killed
 			}
+		}
 		ehci_msleep(100);
 	}
 
 	return retval;
 }
 
+#define NUM_RETRIES_FOR_READ_WRTIE	6	// 2s, 4s, 8s, 16s, 32s, 64s
 s32 USBStorage_Read_Sectors(u32 sector, u32 numSectors, void *buffer)
 {
    s32 retval=0;
@@ -1487,7 +1495,7 @@ s32 USBStorage_Read_Sectors(u32 sector, u32 numSectors, void *buffer)
    if(check_if_dismounted(sector+numSectors))
        return false;
    
-   for(retry=0;retry<6;retry++)
+   for(retry=0;retry<(NUM_RETRIES_FOR_READ_WRTIE);retry++)
 	{	/* Previously, a read never returns failure. It would rather spin in an infinite loop for a bad
 	     * sector. This is understandable. Many callers are not checking if the operation succeeds, and
 		 * the corrupt data read will cause something disastrous down the road. But still, I think an
@@ -1498,7 +1506,7 @@ s32 USBStorage_Read_Sectors(u32 sector, u32 numSectors, void *buffer)
 		 */
 //	 if(retry>12) retry=12; // infinite loop
 	//ehci_usleep(100);
-	 if(!unplug_procedure())	//This never returns false UNLESS a dismount/remount has taken place AND that was successful
+		if(!unplug_procedure())	//This never returns false UNLESS a dismount/remount has taken place AND that was successful
 		{
 		 retval=0;
 		}
@@ -1510,14 +1518,14 @@ s32 USBStorage_Read_Sectors(u32 sector, u32 numSectors, void *buffer)
 		   if(retval>=0) retval=-666;
 		   ehci_msleep(10);*/
 		   }
-		 if(unplug_device!=0 ) continue;	// for a TIMEOUT we are skipping 1 retry and go straight from e.g. a 2s timeout to 8s. That's fine. The disk may be spinning up.
+		if(unplug_device!=0) continue;	// for a TIMEOUT we are skipping 1 retry and go straight from e.g. a 2s timeout to 8s. That's fine. The disk may be spinning up.
 		 //if(retval==-ENODEV) return 0;
 		 /* This is NOT a syscall to some os timer. It is implemented with direct hardware register
 		  * access.
 		  * 
 		  * handshake() will multiply timeout by 2, so 1898438 means 2 seconds.
 		  */
-		 usb_timeout=(DEFAULT_USB_TIMEOUT)<<retry;
+		usb_timeout=(DEFAULT_UMS_TIMEOUT)<<retry;
 	    if(retval >= 0)
 		   retval = USBStorage_Read(&__usbfd, __lun[current_port], sector, numSectors, buffer);
 		usb_timeout=1000*1000;
@@ -1542,7 +1550,7 @@ s32 USBStorage_Write_Sectors(u32 sector, u32 numSectors, const void *buffer)
    if(check_if_dismounted(sector+numSectors))
        return false;
 
-    for(retry=0;retry<6;retry++)
+    for(retry=0;retry<(NUM_RETRIES_FOR_READ_WRTIE);retry++)
 	{
 //	 if(retry>12) retry=12; // infinite loop
 	
@@ -1560,7 +1568,7 @@ s32 USBStorage_Write_Sectors(u32 sector, u32 numSectors, const void *buffer)
 		   //if(retval>=0) retval=-666;
 		   }
 		  if(unplug_device!=0 ) continue;
-		 usb_timeout=(DEFAULT_USB_TIMEOUT)<<retry;	// same as Read above
+		usb_timeout=(DEFAULT_UMS_TIMEOUT)<<retry;	// same as Read above
 	    if(retval >=0)
 		   retval = USBStorage_Write(&__usbfd, __lun[current_port], sector, numSectors, buffer);
 		usb_timeout=1000*1000;
