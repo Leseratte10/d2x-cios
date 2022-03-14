@@ -8,6 +8,7 @@
 	Copyright (C) 2011 rodries.
 	Copyright (C) 2011 davebaol.
 	Copyright (C) 2020 Leseratte.
+	Copyright (C) 2022 cyberstudio
 
 	This program is free software; you can redistribute it and/or modify
 	it under the terms of the GNU General Public License as published by
@@ -55,7 +56,7 @@ int main(void)
 		return ret;
 
 	/* Set current USB port (Now means LUN instead of USB port 1) */
-	current_port = 0;
+	current_drive = 0;
 	
 	/* Initialize TinyEhci */
 	ret = EHCI_Init();

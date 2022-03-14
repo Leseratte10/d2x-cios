@@ -167,7 +167,7 @@ void dump_qh(struct ehci_qh	*qh)
  * before driver shutdown. But it also seems to be caused by bugs in cardbus
  * bridge shutdown:  shutting down the bridge before the devices using it.
  */
-int unplug_device=0;	//2022-03-01 there is only 1 EHCI port (no physical USB Port 1 support), if we unplug its for all drives. So, no need to remember [current_port] separately as in v9 alt. This is not real v9 alt.
+int unplug_device=0;	//2022-03-01 there is only 1 EHCI port (no physical USB Port 1 support), if we unplug its for all drives. So, no need to remember [current_drive] separately as in v9 alt. This is not real v9 alt.
 
 #define INTR_MASK (STS_IAA | STS_FATAL | STS_PCD | STS_ERR | STS_INT)
 
@@ -516,8 +516,7 @@ cleanup:
 
 u32 usb_timeout=1000*1000;
 
-// 2022-02-27 Now means LUN instead of USB port.
-u32 current_port = 0;
+
 
  int ehci_do_urb (
         struct ehci_device *dev,
@@ -711,7 +710,7 @@ s32 ehci_bulk_message(struct ehci_device *dev,u8 bEndpoint,u16 wLength,void *rpD
         return ret;
 }
 
-
+#define DELAY_FROM_RESET_TO_GET_DESCRIPTOR	240
 int ehci_reset_port_old(int port)
 {
         u32 __iomem	*status_reg = &ehci->regs->port_status[port];
@@ -767,7 +766,7 @@ int ehci_reset_port_old(int port)
                           port, retval);*/
                
 			ehci_dbg ( "port %d reseted status:%04x...\n", port,ehci_readl(status_reg));
-			ehci_msleep(240);	// tried msleep(178) with a JMS551 controller (2-bay drive enclosure), hang when drive wakes up from sleep
+			ehci_msleep(DELAY_FROM_RESET_TO_GET_DESCRIPTOR);	// tried msleep(178) with a JMS551 controller (2-bay drive enclosure), hang when drive wakes up from sleep
 			// now the device has the default device id
 			retval = ehci_control_message(dev,USB_CTRLTYPE_DIR_DEVICE2HOST,
                              USB_REQ_GETDESCRIPTOR,USB_DT_DEVICE<<8,0,sizeof(dev->desc),&dev->desc);
@@ -873,7 +872,7 @@ int ehci_init_port(int port)
         int retval = 0;
         dev->id = 0;
 	int i;
-	ehci_msleep(50);
+	ehci_msleep(DELAY_FROM_RESET_TO_GET_DESCRIPTOR);	// 50 might be too harsh and may not be enough for some USB devices to be ready.
 	for(i=0;i<3;i++)
 	{
         
@@ -900,7 +899,7 @@ int ehci_init_port(int port)
 		{
 	        
 	        ehci_reset_usb_port(port);
-	        ehci_msleep(100);
+	        ehci_msleep(DELAY_FROM_RESET_TO_GET_DESCRIPTOR);
 	        //my_sprint("getting USB_REQ_GETDESCRIPTOR",NULL);ehci_msleep(50);
 	        // sdlog("getting USB_REQ_GETDESCRIPTOR - reset\n");   
 	        // now the device has the default device id
@@ -925,7 +924,7 @@ int ehci_init_port(int port)
 			ehci_adquire_port(port);
 	        ehci_msleep(100);
 	        ehci_reset_usb_port(port);
-	        ehci_msleep(100);
+	        ehci_msleep(DELAY_FROM_RESET_TO_GET_DESCRIPTOR);
 	        //my_sprint("getting USB_REQ_GETDESCRIPTOR",NULL);ehci_msleep(50);
 	        // sdlog("getting USB_REQ_GETDESCRIPTOR - adquire - reset\n");   
 	        // now the device has the default device id

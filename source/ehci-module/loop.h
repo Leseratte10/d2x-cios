@@ -6,6 +6,7 @@
 	Copyright (C) 2009 Hermes.
 	Copyright (C) 2009 Waninkoko.
 	Copyright (C) 2011 davebaol.
+	Copyright (C) 2022 cyberstudio.
 
 	This program is free software; you can redistribute it and/or modify
 	it under the terms of the GNU General Public License as published by
@@ -31,7 +32,7 @@
 s32 EHCI_Loop(void);
 
 /* Extern variables */
-extern u32 current_port;
+extern u32 current_drive;
 
 #endif
 

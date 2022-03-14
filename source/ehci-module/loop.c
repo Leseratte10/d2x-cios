@@ -231,7 +231,7 @@ s32 __EHCI_Ioctlv(s32 fd, u32 cmd, ioctlv *vector, u32 inlen, u32 iolen, s32 *ac
 		if (port > 1)
 			ret = -1;
 		else
-			ret = current_port = port;
+			ret = current_drive = port;
 
 		break;
 	}
@@ -303,7 +303,7 @@ void __EHCI_Watchdog(void)
 	u32   nbSectors, sectorSz;
 
 	/* UMS mode */
-	if (ums_mode) {
+	if (ums_mode && watchdog) {
 		/* Get device info */
 		nbSectors = USBStorage_Get_Capacity(&sectorSz);
 
