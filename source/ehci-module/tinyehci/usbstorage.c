@@ -574,6 +574,9 @@ error:
  * Scorpio Blue pulled from a WD NAS router that flunked a 1s timeout and requires at least 2s.
  * Furthermore, keeping on resetting as an error handling measure during spin up only results
  * in a hang. The solution is to properly issue a SCSCI START STOP command to make it spin up.
+ * 
+ * 0.5s=very unstable, blank dir in WiiXplorer, with JMS551 Rosewill RX200R+WD Scorpio Blue 1TB
+ * 1s=better, but cannot create directories during folder copy sometimes
  */
 #define DEFAULT_UMS_TIMEOUT	(1UL*(STARLET_HW_TIMER_ONE_SECOND))
 static s32 __usbstorage_reset(usbstorage_handle *dev,int hard_reset)
@@ -587,7 +590,7 @@ static s32 __usbstorage_reset(usbstorage_handle *dev,int hard_reset)
         if (retry >= 1){
                 u8 conf;
                 debug_printf("reset device..\n");
-                retval = ehci_reset_device(dev->usb_fd);
+                retval = ehci_reset_port2(0);	//ehci_reset_port() always hangs with my JMS551 controller. Use ehci_reset_port2()
 				ehci_msleep(10);
 				if(retval==-ENODEV) return retval;
 
@@ -1453,8 +1456,8 @@ int unplug_procedure(void)
 			// If this changes in the future we will need to loop through all drives instead.
 			int other_port = current_drive ^ 1;
 			if(__mounted[other_port])
-			{	// Just try our luck and remount it. USBStorage_Reset will mount it again.
-				retval=USBStorage_Reset(&__usbfd)<0;	// The only remedy is to recover from the timeout
+			{	// Just try our luck and remount it. __usbstorage_reset() or check_if_dismounted() will mount it again.
+				retval=__usbstorage_reset(&__usbfd,1)<0;	// The only remedy is to recover from the timeout with a hard reset
 				unplug_device=0;
 			}
 			else if(ehci_reset_port2(/*__usbfd.usb_fd->port*/0)>=0)	
@@ -1462,22 +1465,19 @@ int unplug_procedure(void)
 				if(__usbfd.buffer != NULL)
 					USB_Free(__usbfd.buffer);
 				__usbfd.buffer= NULL;
-
-				if(ehci_reset_port(0)>=0)
-				{	// I am keeping the single drive case exactly the same as d2x-v10
-					handshake_mode=1;
-					if(USBStorage_Try_Device(__usbfd.usb_fd)==0)
-					{
-						retval=0;
-						unplug_device=0;
-					}
-					else
-						ums_mode=0;	// mark the entire USB Mass Storage as having been killed
-					handshake_mode=0;
+				//ehci_reset_port() hangs with my JMS551 controller and it is not needed to reset twice in any case
+				//if(ehci_reset_port(0)>=0)
+				handshake_mode=1;
+				if(USBStorage_Try_Device(__usbfd.usb_fd)==0)
+				{
+					retval=0;
+					unplug_device=0;
 				}
 				else
-					ums_mode=0;		// mark the entire USB Mass Storage as having been killed
+					ums_mode=0;	// mark the entire USB Mass Storage as having been killed
+				handshake_mode=0;
 			}
+
 		}
 		ehci_msleep(100);
 	}
