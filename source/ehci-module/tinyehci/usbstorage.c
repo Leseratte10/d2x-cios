@@ -368,7 +368,13 @@ static s32 __cycle(usbstorage_handle *dev, u8 lun, u8 *buffer, u32 len, u8 *cb, 
 
 	do
 	{
-
+#if defined(MEM_PRINT)
+    if(retval < 0)
+	{
+		u32 sec=(cb[2]<<24)|(cb[3]<<16)|(cb[4]<<8)|cb[5];
+		debug_printf("%d %x %d %d\t%d\n", retval, cb[0], lun, sec, get_timer());
+	}
+#endif
 	if(retval==-ENODEV) {unplug_device=1;return -ENODEV;}
 	
 	
@@ -382,7 +388,6 @@ static s32 __cycle(usbstorage_handle *dev, u8 lun, u8 *buffer, u32 len, u8 *cb, 
 			continue; // nuevo
 		else
 		{
-			unplug_device=1;
 			debug_printf("dismounted giving up %d %d %d %d\n",retval,retries,usb_timeout,get_timer());
 			break;
 		}
@@ -390,8 +395,6 @@ static s32 __cycle(usbstorage_handle *dev, u8 lun, u8 *buffer, u32 len, u8 *cb, 
 	buffer=buffer2;
 	len=len2;
 
-	u32 sec=(cb[2]<<24)|(cb[3]<<16)|(cb[4]<<8)|cb[5];
-	debug_printf("%x %d %d\t%d\n", cb[0], lun, sec, get_timer());
 		if(write)
 		{
 
@@ -704,7 +707,7 @@ end:
 		 * __cycle() to do stuff that has the potential to timeout. Infinite reentrancy. Check and
 		 * prevent that from happening with the new handshake_mode=2.
 		 */
-        if(retry < 5 && handshake_mode < 2){	// We must NOT hard reset if we are already hard resetting
+        if(retry < 5 && (handshake_mode < 2 || (retry+1) < (SOFT_RESET_RETRIES))) {	// We must NOT hard reset if we are already hard resetting
                 ehci_msleep(100);
                 debug_printf("retry with hard reset..\n");
                 
@@ -712,10 +715,6 @@ end:
                 goto retry;
         }        
 #endif      
-	if(retval<0){
-		__mounted[current_drive]=0;	// If even a reset fails, the drive is considered to have dismounted.
-		debug_printf("dismounting because reset failed %d %d %d %d\n",retval,retry,usb_timeout,get_timer());
-	}
 	// usb_timeout=old_usb_timeout;  
 	return retval;
 }
@@ -1209,7 +1208,7 @@ static bool check_if_dismounted(void)
 	if(__lun[current_drive] >= 16)
 		return true;		// Previous dismount, also no hope.
 
-	if(USBStorage_MountLUN(&__usbfd, __lun[current_drive])==0)
+	if(USBStorage_MountLUN(&__usbfd, __lun[current_drive])>=0)
 		return false;		// successful wakeup. Good.
 
 	return true;
