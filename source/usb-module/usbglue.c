@@ -81,6 +81,25 @@ bool usbstorage_Scan(void)
 		if (retval < 0)
 			continue;
 
+		// Read boot sector
+		u8 sector_buf[4096];
+		retval = USBStorage_Read(&__usbfd, j, 0, 1, sector_buf);
+		if (retval == USBSTORAGE_ETIMEDOUT)
+			break;
+		if (retval < 0)
+			continue;
+		// discard first read. I've seen a controller so buggy which returns the boot sector of LUN 1 when that of LUN 0 is asked for.
+		retval = USBStorage_Read(&__usbfd, j, 0, 1, sector_buf);
+		if (retval == USBSTORAGE_ETIMEDOUT)
+			break;
+		if (retval < 0)
+			continue;
+		// Make sure this drive has a valid MBR/GPT signature.
+		// If not, it might be a Wii U drive.
+		if (sector_buf[510] != 0x55 ||
+				(sector_buf[511] != 0xAA && sector_buf[511] != 0xAB))
+			continue;
+
 		/* Set parameters */
 		__mounted[found] = true;
 		__lun[found] = j;

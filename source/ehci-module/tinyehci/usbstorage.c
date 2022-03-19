@@ -78,7 +78,7 @@ distribution.
 #ifdef HOMEBREW
 	#define USBSTORAGE_CYCLE_RETRIES	3
 #else
-	#define USBSTORAGE_CYCLE_RETRIES	10
+	#define USBSTORAGE_CYCLE_RETRIES	3	// retry at 2s, 4s, 8s. Better chance of not timing out during a reset than retrying 10 times at 1x intervals.
 #endif
 
 #define MAX_TRANSFER_SIZE			4096
@@ -91,7 +91,7 @@ extern int handshake_mode; // 0->timeout force -ENODEV (unplug_device) 1->timeou
 
 //static bool first_access=true;
 
-static usbstorage_handle __usbfd;
+ usbstorage_handle __usbfd;
 static u8 __lun[2] = {16,16};
 static u8 __mounted[2] = {0,0};	//2022-03-02 if both LUNs are umounted we can close the USB port
 static u16 __vid = 0;
@@ -100,7 +100,7 @@ u32 current_drive = 0;			//This is set by the EHCI loop's USB_IOCTL_UMS_SET_PORT
 
 //0x1377E000
 
-//#define MEM_PRINT 1
+#define MEM_PRINT 1
 
 #ifdef MEM_PRINT
 
@@ -645,6 +645,7 @@ static s32 __usbstorage_reset(usbstorage_handle *dev,int hard_reset)
 					if(USBStorage_MountLUN(&__usbfd, __lun[current_drive]) < 0)
 					   //deliberately return OK? the mount may have failed, but the reset is considered to have succeeded?
                        goto end;
+					   __mounted[current_drive]=1;
 					}
         }
 	/* A vicious cycle would have occurred during a file copy between 2 drives if we give the drives insufficient
@@ -652,7 +653,7 @@ static s32 __usbstorage_reset(usbstorage_handle *dev,int hard_reset)
 	 * and causes it to spin down. Now drive 1 is accessed. It spins up, but timeout, and does another port reset.
 	 * This time, it's drive 0 getting killed, ad infinitum. To give error handling a chance, give it more time.
 	 */
-	usb_timeout+=(DEFAULT_UMS_TIMEOUT);	// increasingly lenient as we keep retrying. (Retry up to 10 times, see __cycle())
+	usb_timeout<<=1;	// increasingly lenient as we keep retrying. (see __cycle())
 	debug_printf("usbstorage reset..%d\n",usb_timeout);
 	retval = __USB_CtrlMsgTimeout(dev, (USB_CTRLTYPE_DIR_HOST2DEVICE | USB_CTRLTYPE_TYPE_CLASS | USB_CTRLTYPE_REC_INTERFACE), USBSTORAGE_RESET, 0, dev->interface, 0, NULL);
 
@@ -1041,9 +1042,6 @@ s32 USBStorage_MountLUN(usbstorage_handle *dev, u8 lun)
 	#ifdef MEM_PRINT
 	   s_printf("    ReadCapacity ret %i\n",retval);
 	#endif
-	if(retval < 0)
-		goto ret;
-	__mounted[current_drive]=1;	// Mark drive as mounted
 ret:
 	handshake_mode=f;
 	return retval;
@@ -1209,7 +1207,10 @@ static bool check_if_dismounted(void)
 		return true;		// Previous dismount, also no hope.
 
 	if(USBStorage_MountLUN(&__usbfd, __lun[current_drive])>=0)
+	{
+		__mounted[current_drive]=1;	// Mark drive as mounted
 		return false;		// successful wakeup. Good.
+	}
 
 	return true;
 }
@@ -1302,6 +1303,47 @@ s32 USBStorage_ScanLUN(void)
              //  break;
            }
 
+		   // Read boot sector
+		   if(retval >= 0)
+		   {
+				u8 sector_buf[4096];
+				int f=handshake_mode;
+				handshake_mode=2;	// disable hard reset
+				retval = __USBStorage_Read(&__usbfd, j, 0, 8, sector_buf);
+				handshake_mode=f;
+				if(retval == USBSTORAGE_ETIMEDOUT)
+				{ 
+					USBStorage_Close(&__usbfd); 
+					return -EINVAL;
+				}
+				if(retval >= 0)
+				{
+					debug_printf("lun %d 1st read signature %x %x\t%d\n", j, sector_buf[510], sector_buf[511], get_timer());
+					// discard first read. I've seen a controller so buggy which returns the boot sector of LUN 1 when that of LUN 0 is asked for.
+					int f=handshake_mode;
+					handshake_mode=2;	// disable hard reset
+					retval = __USBStorage_Read(&__usbfd, j, 0, 8, sector_buf);
+					handshake_mode=f;
+					if(retval == USBSTORAGE_ETIMEDOUT)
+					{ 
+						USBStorage_Close(&__usbfd); 
+						return -EINVAL;
+					}
+					if(retval >= 0)
+					{
+						debug_printf("lun %d 2nd read signature %x %x\t%d\n", j, sector_buf[510], sector_buf[511], get_timer());
+						// Make sure this drive has a valid MBR/GPT signature.
+						// If not, it might be a Wii U drive.
+						if (sector_buf[510] != 0x55 ||
+								(sector_buf[511] != 0xAA && sector_buf[511] != 0xAB))
+						{
+							j++;
+							continue;
+						}
+					}
+			   	}
+		   }
+
            if(retval < 0)
 				{
 				if(test_max_lun)
@@ -1328,6 +1370,7 @@ s32 USBStorage_ScanLUN(void)
 		   /*2022-03-05 vid pid now done right after USBStorage_Open()
            __vid=fd->desc.idVendor;
            __pid=fd->desc.idProduct;*/
+		   __mounted[found] = 1;	// Mark drive as mounted
            __lun[found] = j++;		//remember LUN of found disk
 		   usb_timeout=1000*1000;
 		   try_status=0;
