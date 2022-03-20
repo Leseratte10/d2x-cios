@@ -91,7 +91,7 @@ extern int handshake_mode; // 0->timeout force -ENODEV (unplug_device) 1->timeou
 
 //static bool first_access=true;
 
- usbstorage_handle __usbfd;
+static usbstorage_handle __usbfd;
 static u8 __lun[2] = {16,16};
 static u8 __mounted[2] = {0,0};	//2022-03-02 if both LUNs are umounted we can close the USB port
 static u16 __vid = 0;
@@ -100,7 +100,7 @@ u32 current_drive = 0;			//This is set by the EHCI loop's USB_IOCTL_UMS_SET_PORT
 
 //0x1377E000
 
-#define MEM_PRINT 1
+//#define MEM_PRINT 1
 
 #ifdef MEM_PRINT
 
@@ -609,7 +609,8 @@ error:
  */
 #define STARLET_HW_TIMER_ONE_SECOND	(243UL*1000000UL/128UL)
 // The following is actually 2 seconds because handshake shifts the timeout left by 1 bit.
-#define DEFAULT_UMS_TIMEOUT	(1UL*(STARLET_HW_TIMER_ONE_SECOND))		// 2 seconds
+#define DEFAULT_UMS_TIMEOUT			(1UL*(STARLET_HW_TIMER_ONE_SECOND))		// 2 seconds
+#define TIMEOUT_AFTER_HARD_RESET	(6UL*(STARLET_HW_TIMER_ONE_SECOND))
 // Number of soft reset attempts before we use hard reset. It is not advisable to use hard
 // reset to clear an error while spinning up because hard reset will unplug the drive and
 // make it spin down, causing an infinite vicious cycle. Allow enough time for soft reset
@@ -647,6 +648,7 @@ static s32 __usbstorage_reset(usbstorage_handle *dev,int hard_reset)
                        goto end;
 					   __mounted[current_drive]=1;
 					}
+				usb_timeout=(TIMEOUT_AFTER_HARD_RESET);
         }
 	/* A vicious cycle would have occurred during a file copy between 2 drives if we give the drives insufficient
 	 * timeout. Drive 0 spins up from standby and timeout, which leads to a port reset. That kills drive 1, too,
