@@ -7,6 +7,7 @@ Sven Peter (svpe) <svpe@gmx.net>
 
 quick port to ehci/ios: Kwiirk
 Copyright (C) 2011 davebaol
+Copyright (C) 2017 GerbilSoft
 Copyright (C) 2022 cyberstudio
 
 This software is provided 'as-is', without any express or implied
@@ -75,11 +76,7 @@ distribution.
 
 #define	USB_ENDPOINT_BULK		0x02
 
-#ifdef HOMEBREW
-	#define USBSTORAGE_CYCLE_RETRIES	3
-#else
-	#define USBSTORAGE_CYCLE_RETRIES	3	// retry at 2s, 4s, 8s. Better chance of not timing out during a reset than retrying 10 times at 1x intervals.
-#endif
+#define USBSTORAGE_CYCLE_RETRIES	3	// retry at 2s, 4s, 8s. Better chance of not timing out during a reset than retrying 10 times at 1x intervals.
 
 #define MAX_TRANSFER_SIZE			4096
 

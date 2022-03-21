@@ -79,4 +79,5 @@
 - neimod, for the Custom IOS module.
 - xerpi, for fakemote (wired ps3/ps4 controller support).
 - cyberstudio, for 2-bay disk enclosure support.
+- GerbilSoft, for code that checks disk signature and skips Wii U drives.
 - All the betatesters.

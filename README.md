@@ -36,7 +36,7 @@ code as of February 15th, 2020; I am planning to add more features to the cIOS a
   Without ModMii d2x cios would probably never have existed. Also, XFlak had
   the original idea to replace the buggy EHCI module of cIOSX rev21 with the
   working one from rev19. 
- * *[HackWii](http://www.hackwii.it)* and *[GBAtemp](http://www.gbatemp.net)* communities, for their ideas and support.
+ * *[HackWii.it](http://www.hackwii.it)* and *[GBAtemp.net](http://www.gbatemp.net)* communities, for their ideas and support.
  * *Totoro*, for the official d2x logo
  * *ChaN*, for his [FatFs](http://elm-chan.org/fsw/ff/00index_e.html).
  * *Waninkoko*, for his cIOSX rev21.
@@ -47,4 +47,5 @@ code as of February 15th, 2020; I am planning to add more features to the cIOS a
  * *neimod*, for his [Custom IOS Module Toolkit](http://wiibrew.org/wiki/Custom_IOS_Module_Toolkit).
  * *xerpi*, for fakemote (wired ps3/ps4 controller support).
  * *cyberstudio*, for 2-bay disk enclosure support.
+ * *GerbilSoft*, for code that checks disk signature and skips Wii U drives.
  * All the betatesters.
