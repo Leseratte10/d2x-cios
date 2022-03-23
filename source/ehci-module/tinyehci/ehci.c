@@ -9,6 +9,11 @@
    this driver is originally based on the GPL linux ehci-hcd driver
 
  * Original Copyright (c) 2001 by David Brownell
+ * Copyright (c) 2009 Kwiirk.
+ * Copyright (c) 2009 Hermes.
+ * Copyright (c) 2011 rodries.
+ * Copyright (c) 2011 davebaol.
+ * Copyright (c) 2022 cyberstudio
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -28,7 +33,7 @@
 
 
 /* magic numbers that can affect system performance */
-#define	EHCI_TUNE_CERR		0	/* 0-3 qtd retries; 0 == don't stop */ /* by  Hermes: i have replaced 3 by 0 and now it don´t hang when i extract the device*/
+#define	EHCI_TUNE_CERR		0	/* 0-3 qtd retries; 0 == don't stop */ /* by  Hermes: i have replaced 3 by 0 and now it donÂ´t hang when i extract the device*/
 #define	EHCI_TUNE_RL_HS		4	/* nak throttle; see 4.9 */
 #define	EHCI_TUNE_RL_TT		0
 #define	EHCI_TUNE_MULT_HS	1	/* 1-3 transactions/uframe; 4.10.3 */
@@ -162,7 +167,7 @@ void dump_qh(struct ehci_qh	*qh)
  * before driver shutdown. But it also seems to be caused by bugs in cardbus
  * bridge shutdown:  shutting down the bridge before the devices using it.
  */
-int unplug_device=0;
+int unplug_device=0;	//2022-03-01 there is only 1 EHCI port (no physical USB Port 1 support), if we unplug its for all drives. So, no need to remember [current_drive] separately as in v9 alt. This is not real v9 alt.
 
 #define INTR_MASK (STS_IAA | STS_FATAL | STS_PCD | STS_ERR | STS_INT)
 
@@ -195,6 +200,7 @@ static int handshake (void __iomem *pstatus, void __iomem *ptr,
 
 		if ((g_status == ~(u32)0) || (PORT_OWNER&status) || (g_status & STS_FATAL))		/* card removed */
 			{
+			debug_printf("unplug, handshake() %d\n", __LINE__);
 			unplug_device=1;
 			return -ENODEV;
 			}
@@ -202,6 +208,7 @@ static int handshake (void __iomem *pstatus, void __iomem *ptr,
 
 		if (/*(g_status == ~(u32)0) || */ !(PORT_CONNECT&status))		/* card removed */
 			{
+			debug_printf("unplug, handshake() %d\n", __LINE__);
 			unplug_device=1;
 			ret=-ENODEV;
 			goto handshake_exit;
@@ -211,7 +218,11 @@ static int handshake (void __iomem *pstatus, void __iomem *ptr,
 		
 		if(g_status & STS_ERR) 
 			{
-			if(handshake_mode) ret=-ETIMEDOUT; else {unplug_device=1;ret=-ENODEV;}
+			if(handshake_mode) ret=-ETIMEDOUT; else {
+				debug_printf("unplug, handshake() %d\n", __LINE__);
+				unplug_device=1;
+				ret=-ENODEV;
+			}
 			goto handshake_exit;
 
 			}
@@ -229,6 +240,7 @@ static int handshake (void __iomem *pstatus, void __iomem *ptr,
 	if(handshake_mode) ret=-ETIMEDOUT;
 		else
 		{
+		debug_printf("unplug, handshake() %d\n", __LINE__);
 		unplug_device=1;
 		ret=-ENODEV; /* Hermes: with ENODEV works the unplugin method receiving datas (fatal error)
 			            ENODEV return without retries and unplug_device can works without interferences.
@@ -705,7 +717,7 @@ s32 ehci_bulk_message(struct ehci_device *dev,u8 bEndpoint,u16 wLength,void *rpD
         return ret;
 }
 
-
+#define DELAY_FROM_RESET_TO_GET_DESCRIPTOR	240
 int ehci_reset_port_old(int port)
 {
         u32 __iomem	*status_reg = &ehci->regs->port_status[port];
@@ -761,7 +773,7 @@ int ehci_reset_port_old(int port)
                           port, retval);*/
                
 			ehci_dbg ( "port %d reseted status:%04x...\n", port,ehci_readl(status_reg));
-			ehci_msleep(100);
+			ehci_msleep(DELAY_FROM_RESET_TO_GET_DESCRIPTOR);	// tried msleep(178) with a JMS551 controller (2-bay drive enclosure), hang when drive wakes up from sleep
 			// now the device has the default device id
 			retval = ehci_control_message(dev,USB_CTRLTYPE_DIR_DEVICE2HOST,
                              USB_REQ_GETDESCRIPTOR,USB_DT_DEVICE<<8,0,sizeof(dev->desc),&dev->desc);
@@ -867,7 +879,7 @@ int ehci_init_port(int port)
         int retval = 0;
         dev->id = 0;
 	int i;
-	ehci_msleep(50);
+	ehci_msleep(DELAY_FROM_RESET_TO_GET_DESCRIPTOR);	// 50 might be too harsh and may not be enough for some USB devices to be ready.
 	for(i=0;i<3;i++)
 	{
         
@@ -894,7 +906,7 @@ int ehci_init_port(int port)
 		{
 	        
 	        ehci_reset_usb_port(port);
-	        ehci_msleep(100);
+	        ehci_msleep(DELAY_FROM_RESET_TO_GET_DESCRIPTOR);
 	        //my_sprint("getting USB_REQ_GETDESCRIPTOR",NULL);ehci_msleep(50);
 	        // sdlog("getting USB_REQ_GETDESCRIPTOR - reset\n");   
 	        // now the device has the default device id
@@ -919,7 +931,7 @@ int ehci_init_port(int port)
 			ehci_adquire_port(port);
 	        ehci_msleep(100);
 	        ehci_reset_usb_port(port);
-	        ehci_msleep(100);
+	        ehci_msleep(DELAY_FROM_RESET_TO_GET_DESCRIPTOR);
 	        //my_sprint("getting USB_REQ_GETDESCRIPTOR",NULL);ehci_msleep(50);
 	        // sdlog("getting USB_REQ_GETDESCRIPTOR - adquire - reset\n");   
 	        // now the device has the default device id

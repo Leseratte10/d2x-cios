@@ -39,6 +39,20 @@ make_modules() {
 
         # Copy Changelog.txt to the build directory
         cp data/Changelog.txt build
+        # When docker is built it has downloaded some content in its image, e.g. FAKEMOTE by xerpi please see
+        # https://gbatemp.net/threads/release-fakemote-an-ios-module-that-fakes-wiimotes-from-the-input-of-usb-game-controllers.601771/
+        cp -p /opt/content/* "build/${D2XBUILD}"
+        # Make duplicates of binaries so that they will show up as different groups in d2x-cios-installer. In my opinion this is the
+        # less risky solution in the wrong hands. Leseratte added console= and region= tags to ciosmaps.xml. A new d2x-cios-installer
+        # is needed with enhancements to support those new tags and filter the user interface so that only the options pertinent to the
+        # user's hardware are shown. However, nothing stops users from using this cIOS with existing the d2x-cios-installer with no
+        # such support, and then proceed to install the wrong cIOS on the wrong console (e.g. Wii cIOS on vWii). The safest thing to do
+        # IMO is to group them into ciosgroups. Time comes when somebody makes a new d2x-cios-installer it can still support
+        # Leseratte's new tags and filter the options. The only cost to this arrangement is file duplication and extra disk/SD card
+        # space.
+        cp -fprT "build/${D2XBUILD}" "build/${D2XBASENAME}-vWii"
+        cp -fprT "build/${D2XBUILD}" "build/${D2XBASENAME}-WiiMini-NTSCU"
+        cp -fprT "build/${D2XBUILD}" "build/${D2XBASENAME}-WiiMini-PAL"
 
         [ -z "${DIST}" ] && completed
 
@@ -96,7 +110,7 @@ completed() {
 menu() {
         echo
         echo "Usage 1: $0 [<major_version> [<minor_version> [dist | DIST]]]"
-        echo "  It builds d2x with the specified major and minor version."
+        echo "  It builds d2xl with the specified major and minor version."
         echo "  Default values are \"999\" and \"unknown\" respectively."
         echo "  If option dist or DIST is specified then a zip file is generated, i.e. the"
         echo "  distribution package. Be aware that:"
@@ -127,7 +141,7 @@ export CLEAN=""
 export MAJOR_VERSION=$1
 [ -z "${MAJOR_VERSION}" ] && export MAJOR_VERSION="999"
 export MINOR_VERSION=$2
-[ -z "${MINOR_VERSION}" ] && export MINOR_VERSION="unknown"
+[ -z "${MINOR_VERSION}" ] && export MINOR_VERSION=".unknown"
 export DIST=$3
 
 # Check arguments
@@ -149,7 +163,8 @@ if [ ! -z "${DIST}" ] && [ "${DIST}" != "dist" ]; then
 
 fi
 
-export D2XBUILD=d2xl-v${MAJOR_VERSION}-${MINOR_VERSION}
+D2XBASENAME=d2xl-v${MAJOR_VERSION}${MINOR_VERSION}
+export D2XBUILD=${D2XBASENAME}-Wii
 
 echo -----------------------------
 echo Building ${D2XBUILD}

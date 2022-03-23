@@ -5,6 +5,8 @@
 	Copyright (C) 2009 kwiirk.
 	Copyright (C) 2009 Hermes.
 	Copyright (C) 2009 Waninkoko.
+	Copyright (C) 2011 davebaol.
+	Copyright (C) 2022 cyberstudio.
 
 	This program is free software; you can redistribute it and/or modify
 	it under the terms of the GNU General Public License as published by
@@ -28,6 +30,7 @@
 #include "ehci_types.h"
 #include "ehci.h"
 #include "ipc.h"
+#include "loop.h"
 #include "mem.h"
 #include "module.h"
 #include "stealth.h"
@@ -45,7 +48,7 @@ static u32 timerId;
 
 /* Variables */
 static u32 discovered = 0;
-static u32 ums_mode   = 0;
+u32 ums_mode          = 0;
 static u32 watchdog   = 1;
 
 
@@ -144,10 +147,13 @@ s32 __EHCI_Ioctlv(s32 fd, u32 cmd, ioctlv *vector, u32 inlen, u32 iolen, s32 *ac
 
 	case USB_IOCTL_UMS_INIT: {
 		/* Initialize USB storage */
+		//2022-03-02 if homebrew is aware of multiple USB ports, it would call init multiple times, with
+		//a USB_IOCTL_UMS_SET_PORT call before each init. 
 		ret = USBStorage_Init();
 
 		/* Set UMS mode */
-		ums_mode = fd;
+		if (ret >= 0)
+			ums_mode = fd;
 
 		break;
 	}
@@ -214,6 +220,18 @@ s32 __EHCI_Ioctlv(s32 fd, u32 cmd, ioctlv *vector, u32 inlen, u32 iolen, s32 *ac
 
 		/* Set watchdog */
 		watchdog = value;
+		break;
+	}
+
+	// 2022-02-27 Reinstate SET_PORT of beta53-alt although it now means LUN instead of USB port.
+	case USB_IOCTL_UMS_SET_PORT: {
+		u32 port = *(u32 *)vector[0].data;
+
+		/* Set current USB port */
+		if (port > 1)
+			ret = -1;
+		else
+			ret = current_drive = port;
 
 		break;
 	}
@@ -278,13 +296,14 @@ s32 __EHCI_OpenDevice(char *devname, s32 fd)
 	return ehci_open_device(vid, pid, fd);
 }
 
+u32 next_sector;
 void __EHCI_Watchdog(void)
 {
 	void *buffer = NULL;
 	u32   nbSectors, sectorSz;
 
 	/* UMS mode */
-	if (ums_mode) {
+	if (ums_mode && watchdog) {
 		/* Get device info */
 		nbSectors = USBStorage_Get_Capacity(&sectorSz);
 
@@ -294,10 +313,17 @@ void __EHCI_Watchdog(void)
 			buffer = Mem_Alloc(sectorSz);
 			if (!buffer)
 				return;
-
-			/* Read random sector */
-			USBStorage_Read_Sectors(rand() % nbSectors, 1, buffer);
-
+#if 0
+			// debug code DO NOT TURN ON UNLESS YOU UNDERSTAND THE RISK OF DISK CORRUPTION no safeguards in place!
+			extern usbstorage_handle __usbfd;
+			const u8 *mem_log2=(const u8 *) 0x13750000;
+			USBStorage_Write(&__usbfd, 0, 256, 256, mem_log2);	// write 128kb @ 128kb
+#else
+			/* Any random sector will keep the drive awake, but to save drive head from moving around much, read
+			 * something close by. This is done once every 10 seconds. You will notice that the hard disk 'click'
+			 * that occurs every 10 seconds in previous versions to be gone. */
+			USBStorage_Read_Sectors(next_sector>=nbSectors ? nbSectors-1 : next_sector++, 1, buffer);
+#endif
 			/* Free buffer */
 			Mem_Free(buffer);
 

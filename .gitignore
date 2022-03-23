@@ -1,0 +1,7 @@
+*.o
+*.elf
+*.a
+*.orig
+*.map
+build/
+stripios

@@ -24,6 +24,8 @@
 #define USB_IOCTL_UMS_SET_VERBOSE		(UMS_BASE+0x6)
 #define USB_IOCTL_UMS_UMOUNT			(UMS_BASE+0x10)
 #define USB_IOCTL_UMS_WATCHDOG			(UMS_BASE+0x80)
+// 2022-02-27 Now means LUN instead of USB port.
+#define USB_IOCTL_UMS_SET_PORT			(UMS_BASE+0x83)
 
 /* WBFS IOCTL commands */
 #define WBFS_BASE				(('W'<<24)|('F'<<16)|('S'<<8))

@@ -17,6 +17,8 @@
 #define IOCTL_UMS_READ_SECTORS		(UMS_BASE + 0x3)
 #define IOCTL_UMS_WRITE_SECTORS		(UMS_BASE + 0x4)
 #define IOCTL_UMS_UMOUNT		(UMS_BASE + 0x10)
+// 2022-03-07 SET_PORT now means LUN instead of USB port.
+#define IOCTL_UMS_SET_DRIVE			(UMS_BASE+0x83)
 
 /* WBFS IOCTL commands */
 #define WBFS_BASE			(('W'<<24)|('F'<<16)|('S'<<8))

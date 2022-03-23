@@ -2,11 +2,21 @@
 | CHANGELOG |
 +-----------+
 
-[ d2xl v1 beta3 ] (NOT RELEASED YET)
+[ d2xl v9 ]
+
+- Improved compatibility with certain drive/controller combinations when the
+  drive wakes up from sleep
+- Block IOS Reload tested to be working on Wii Mini
+- Support for 2-bay HDD enclosure/dock - Wii-U-formatted drives are skipped, or
+  use USB Port setting in USB Loader GX or WiiXplorer to choose drive
+- FAKEMOTE by xerpi see https://gbatemp.net/threads/release-fakemote-an-ios-module-that-fakes-wiimotes-from-the-input-of-usb-game-controllers.601771/
+
+[ d2xl v1 beta3 ] (NOT RELEASED)
 
 - First version compiled from source
 - Works with Wii, vWii and Wii Mini 
-- Compiling the same code will always result in the same binary (reproducible builds)
+- Compiling the same code will always result in the same binary (reproducible
+  builds)
 
 [ d2xl v1 beta1 / beta2 ]
 
